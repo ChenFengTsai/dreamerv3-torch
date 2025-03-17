@@ -213,15 +213,50 @@ class WorldModel(nn.Module):
 
 
 class ImagBehavior(nn.Module):
-    def __init__(self, config, world_model):
+    def __init__(self, config, world_model, future_predictor=None):
         super(ImagBehavior, self).__init__()
         self._use_amp = True if config.precision == 16 else False
         self._config = config
         self._world_model = world_model
-        if config.dyn_discrete:
-            feat_size = config.dyn_stoch * config.dyn_discrete + config.dyn_deter
+        # new
+        self._future = config.future
+        self._combine = config.combine
+
+        kw = dict(wd=config.weight_decay, opt=config.opt, use_amp=self._use_amp)
+        
+        # add self.future_predictor new
+        if self._future:
+            self._future_predictor = future_predictor
+            self._future_opt = tools.Optimizer(
+                "future",
+                self._future_predictor.parameters(),
+                config.model_lr,
+                config.opt_eps,
+                config.grad_clip,
+                config.weight_decay,
+                opt=config.opt,
+                use_amp=self._use_amp,
+            )
+            
+        if self._future:
+            if config.dyn_discrete:
+                feat_size = config.dyn_stoch * config.dyn_discrete + config.dyn_deter + config.future_dim
+            else:
+                feat_size = config.dyn_stoch + config.dyn_deter + config.future_dim
+                
+        elif self._combine:
+            if config.dyn_discrete:
+                feat_size = 2*(config.dyn_stoch * config.dyn_discrete + config.dyn_deter)
+            else:
+                feat_size = 2*(config.dyn_stoch + config.dyn_deter)
+            
         else:
-            feat_size = config.dyn_stoch + config.dyn_deter
+            if config.dyn_discrete:
+                feat_size = config.dyn_stoch * config.dyn_discrete + config.dyn_deter
+            else:
+                feat_size = config.dyn_stoch + config.dyn_deter
+                    
+        # print(f'feat_size:', feat_size)
         self.actor = networks.MLP(
             feat_size,
             (config.num_actions,),
@@ -297,6 +332,15 @@ class ImagBehavior(nn.Module):
                 imag_feat, imag_state, imag_action = self._imagine(
                     start, self.actor, self._config.imag_horizon
                 )
+                
+                # new
+                if self._future:
+                    self.saved_deter = imag_state["deter"]
+                    self.saved_stoch = imag_state["stoch"]
+                
+                # print('deter shape', self.saved_deter.shape)
+                # print('stoch shape', self.saved_stoch.shape)
+                
                 reward = objective(imag_feat, imag_state, imag_action)
                 actor_ent = self.actor(imag_feat).entropy()
                 state_ent = self._world_model.dynamics.get_dist(imag_state).entropy()
@@ -350,20 +394,86 @@ class ImagBehavior(nn.Module):
         flatten = lambda x: x.reshape([-1] + list(x.shape[2:]))
         start = {k: flatten(v) for k, v in start.items()}
 
-        def step(prev, _):
-            state, _, _ = prev
-            feat = dynamics.get_feat(state)
-            inp = feat.detach()
-            action = policy(inp).sample()
-            succ = dynamics.img_step(state, action)
-            return succ, feat, action
+        if self._future:
+            init_state = (start, None, None)
 
-        succ, feats, actions = tools.static_scan(
-            step, [torch.arange(horizon)], (start, None, None)
-        )
-        states = {k: torch.cat([start[k][None], v[:-1]], 0) for k, v in succ.items()}
+        elif self._combine:
+            initial_feat = dynamics.get_feat(start).detach()
+            state_key = start.keys()
+            init_state = (
+                {
+                    **{f'{k}': v for k, v in start.items()},
+                    'moving_avg': initial_feat,
+                    'count': torch.tensor(1, device=start['deter'].device)
+                },
+                None,
+                None
+            )
+
+
+        else:
+            init_state = (start, None, None)
+
+        def step(prev, _):
+            if self._future:
+                state, _, _ = prev
+                feat = dynamics.get_feat(state).detach()
+                future_h_t_pred = self._future_predictor(state["deter"], state["stoch"]).detach()
+                policy_input = torch.cat([feat, future_h_t_pred], dim=-1)
+                action = policy(policy_input).sample()
+                succ = dynamics.img_step(state, action)
+                return succ, policy_input, action
+
+            elif self._combine:
+                prev_state, _, _ = prev
+                state = {k: v for k, v in prev_state.items() if k in state_key}
+                moving_avg = prev_state['moving_avg']
+                count = prev_state['count']
+
+                mode = "ema"
+                if mode == 'avg':
+                    feat = dynamics.get_feat(state).detach()
+                    avg_feat = feat if count == 1 else moving_avg
+                    policy_input = torch.cat([feat, avg_feat], dim=-1)
+                    
+                elif mode == 'ema':
+                    feat = dynamics.get_feat(state).detach()
+                    alpha = 0.99 if count > 1 else 0.0
+                    new_moving_avg = alpha * moving_avg + (1 - alpha) * feat
+                    policy_input = torch.cat([feat, new_moving_avg], dim=-1)
+
+                action = policy(policy_input).sample()
+                succ = dynamics.img_step(state, action)
+
+                new_moving_avg = (moving_avg * count + feat) / (count + 1)
+                new_count = count + 1
+
+                new_state = {
+                    **{f'{k}': v for k, v in succ.items()},
+                    'moving_avg': new_moving_avg,
+                    'count': new_count
+                }
+                return new_state, policy_input, action
+
+
+            else:
+                state, _, _ = prev
+                feat = dynamics.get_feat(state).detach()
+                action = policy(feat).sample()
+                succ = dynamics.img_step(state, action)
+                return succ, feat, action
+
+        # Run static_scan
+        succ_out, feats, actions = tools.static_scan(step, [torch.arange(horizon)], init_state)
+
+        # Extract correct states
+        if self._combine:
+            states = {k: torch.cat([start[k][None], v[:-1]], 0) for k, v in succ_out.items() if k in state_key}
+        else:
+            states = {k: torch.cat([start[k][None], v[:-1]], 0) for k, v in succ_out.items()}
 
         return feats, states, actions
+
 
     def _compute_target(self, imag_feat, imag_state, reward):
         if "cont" in self._world_model.heads:
@@ -393,6 +503,7 @@ class ImagBehavior(nn.Module):
         weights,
         base,
     ):
+        
         metrics = {}
         inp = imag_feat.detach()
         policy = self.actor(inp)
@@ -434,3 +545,101 @@ class ImagBehavior(nn.Module):
                 for s, d in zip(self.value.parameters(), self._slow_value.parameters()):
                     d.data = mix * s.data + (1 - mix) * d.data
             self._updates += 1
+       
+       
+# new     
+# class FutureHiddenPredictor(nn.Module):
+#     def __init__(self, config, future_horizon=10):
+#         super().__init__()
+#         self.future_horizon = future_horizon
+#         self._device = config.device  # Store device
+
+#         if config.dyn_discrete:
+#             feat_size = config.dyn_stoch * config.dyn_discrete + config.dyn_deter
+#         else:
+#             feat_size = config.dyn_stoch + config.dyn_deter
+
+#         self.fc = nn.Sequential(
+#             nn.Linear(feat_size, 1024),
+#             nn.ReLU(),
+#             nn.Linear(1024, 1024),  # Predict future hidden state
+#             nn.ReLU(),
+#             nn.Linear(1024, self.deter_dim)  # Predict future hidden state
+#         )
+
+#         # Move the model to the specified device
+#         self.to(self._device)
+
+#     def forward(self, h_t, s_t):
+#         if h_t is None:
+#             raise ValueError("h_t is None!")
+#         if s_t is None:
+#             raise ValueError("s_t is None!")
+
+#         # Move inputs to the correct device
+#         h_t = h_t.to(self._device)
+#         s_t = s_t.to(self._device)
+
+#         # Concatenate current hidden state (h_t, s_t)
+#         s_t = s_t.reshape(s_t.shape[0], -1)
+#         input_features = torch.cat([h_t, s_t], dim=-1)
+
+#         # Predict future hidden state
+#         return self.fc(input_features).to(self._device)
+
+
+class FutureHiddenPredictor(nn.Module):
+    def __init__(self, config, num_layers=6, nhead=8):
+        super().__init__()
+        self.device = config.device  # Store device
+
+        if config.dyn_discrete:
+            feat_size = config.dyn_stoch * config.dyn_discrete + config.dyn_deter
+        else:
+            feat_size = config.dyn_stoch + config.dyn_deter
+
+        self.deter_dim = config.dyn_deter
+        self.stoch_dim = config.dyn_stoch * config.dyn_stoch
+        self.action_dim = config.num_actions
+
+        transformer_dim = 512  # Define Transformer hidden size
+
+        # Embedding layer to project input features
+        self.embedding = nn.Linear(feat_size, transformer_dim)
+
+        # Transformer Encoder
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=transformer_dim, 
+            nhead=nhead, 
+            dim_feedforward=1024, 
+            activation="relu", 
+            batch_first=True
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        # Output projection layer
+        self.fc_out = nn.Linear(transformer_dim, self.deter_dim)
+
+    def forward(self, h_t, s_t):
+        if h_t is None or s_t is None:
+            raise ValueError("h_t or s_t is None!")
+
+        s_t = s_t.reshape(s_t.shape[0], -1)  # Flatten stochastic state
+        input_features = torch.cat([h_t, s_t], dim=-1)  # Concatenate states
+
+        # Pass through embedding layer
+        embedded_features = self.embedding(input_features)  # Shape: (batch_size, feature_dim)
+
+        # Transformer expects (batch_size, sequence_length, feature_dim)
+        # Since we don't have a temporal sequence, we reshape it as a sequence of length 1
+        embedded_features = embedded_features.unsqueeze(1)  # Shape: (batch_size, 1, transformer_dim)
+
+        # Transformer Encoder (single step)
+        transformed_features = self.transformer(embedded_features)
+
+        # Get the output (since sequence length is 1, we extract the first element)
+        output = self.fc_out(transformed_features[:, 0, :])
+
+        return output.to(self.device)
+
+

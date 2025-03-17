@@ -3,6 +3,7 @@ import functools
 import os
 import pathlib
 import sys
+from torch.utils.tensorboard import SummaryWriter
 
 os.environ["MUJOCO_GL"] = "osmesa"
 
@@ -20,7 +21,7 @@ from parallel import Parallel, Damy
 import torch
 from torch import nn
 from torch import distributions as torchd
-
+torch.autograd.set_detect_anomaly(True)
 
 to_np = lambda x: x.detach().cpu().numpy()
 
@@ -30,6 +31,10 @@ class Dreamer(nn.Module):
         super(Dreamer, self).__init__()
         self._config = config
         self._logger = logger
+        # new
+        self._future = config.future
+        self._combine = config.combine
+        self._best_candidate = config.best_candidate
         self._should_log = tools.Every(config.log_every)
         batch_steps = config.batch_size * config.batch_length
         self._should_train = tools.Every(batch_steps / config.train_ratio)
@@ -41,8 +46,17 @@ class Dreamer(nn.Module):
         self._step = logger.step // config.action_repeat
         self._update_count = 0
         self._dataset = dataset
+        self._use_amp = True if config.precision == 16 else False
         self._wm = models.WorldModel(obs_space, act_space, self._step, config)
-        self._task_behavior = models.ImagBehavior(config, self._wm)
+        
+        ### new 
+        if self._future:
+            self.future_predictor = models.FutureHiddenPredictor(config, config.future_horizon)
+            # add in self.future_predictor
+            self._task_behavior = models.ImagBehavior(config, self._wm, self.future_predictor)
+        else:
+            self._task_behavior = models.ImagBehavior(config, self._wm)
+            
         if (
             config.compile and os.name != "nt"
         ):  # compilation is not supported on windows
@@ -83,17 +97,49 @@ class Dreamer(nn.Module):
             self._logger.step = self._config.action_repeat * self._step
         return policy_output, state
 
+    
     def _policy(self, obs, state, training):
         if state is None:
             latent = action = None
         else:
             latent, action = state
+        
+        # Preprocess input observation
         obs = self._wm.preprocess(obs)
         embed = self._wm.encoder(obs)
+
+        # Standard latent state update from world model
         latent, _ = self._wm.dynamics.obs_step(latent, action, embed, obs["is_first"])
+
+        # If eval_state_mean is enabled, use mean of stochastic latent space
         if self._config.eval_state_mean:
             latent["stoch"] = latent["mean"]
+
+        # Extract feature representation from the current latent state
         feat = self._wm.dynamics.get_feat(latent)
+        # print(f"original feat shape: {feat.shape}")
+        
+        # new
+        if self._future:
+            future_hidden = self._predict_future_state(latent)  # Predict future state
+            feat = torch.cat([feat, future_hidden.detach()], dim=-1)  # Concatenate both representations
+            
+        elif self._combine:
+            # Run an imagined rollout from the current latent state
+            horizon = self._config.imag_horizon
+            start = {k: v.unsqueeze(0) for k, v in latent.items()}  # Add time dimension
+            imag_feat, _, _ = self._task_behavior._imagine(start, self._task_behavior.actor, horizon)
+
+            # Aggregate the imagined features over the horizon (mean pooling)
+            imag_feat_mean = imag_feat.mean(dim=0)  # Shape: [batch_size, feature_dim]
+
+            # Concatenate the aggregated imagined features to the current feature
+            size = int(imag_feat_mean.shape[1]/2)
+            feat = torch.cat([feat, imag_feat_mean[:, size:].detach()], dim=-1)
+            
+        # print(f"combined feat shape: {feat.shape}")
+    
+        # Choose action based on training or exploration mode
         if not training:
             actor = self._task_behavior.actor(feat)
             action = actor.mode()
@@ -101,18 +147,31 @@ class Dreamer(nn.Module):
             actor = self._expl_behavior.actor(feat)
             action = actor.sample()
         else:
-            actor = self._task_behavior.actor(feat)
-            action = actor.sample()
+            if self._best_candidate:
+                action = self._select_best_action(feat, latent)
+            else:
+                actor = self._task_behavior.actor(feat)
+                action = actor.sample()
+
+        # Compute log probability of the action
         logprob = actor.log_prob(action)
+
+        # Detach latent and action for stability
         latent = {k: v.detach() for k, v in latent.items()}
         action = action.detach()
+
+        # Convert action to one-hot if required
         if self._config.actor["dist"] == "onehot_gumble":
             action = torch.one_hot(
                 torch.argmax(action, dim=-1), self._config.num_actions
             )
+
         policy_output = {"action": action, "logprob": logprob}
         state = (latent, action)
+        
         return policy_output, state
+
+
 
     def _train(self, data):
         metrics = {}
@@ -131,6 +190,77 @@ class Dreamer(nn.Module):
                 self._metrics[name] = [value]
             else:
                 self._metrics[name].append(value)
+                
+        ### New Training for FutureHiddenPredictor ###
+        # Retrieve stored hidden states from `_task_behavior._train()`
+        if self._future:
+            with tools.RequiresGrad(self.future_predictor):
+                with torch.cuda.amp.autocast(self._use_amp):
+                    # Retrieve stored hidden states (current and future)
+                    first_h_t = self._task_behavior.saved_deter[0].detach()  # first
+                    first_s_t = self._task_behavior.saved_stoch[0].detach()  # first
+                    # Target: The deterministic hidden state **10 steps into the future**
+                    h_t_future = self._task_behavior.saved_deter[-1].detach()
+                    # print("h_t_future shape:", h_t_future.shape)
+            
+                    # Predict the future hidden states from the current step
+                    h_t_future_pred = self.future_predictor(first_h_t, first_s_t)
+                    # print("h_t_future_pred shape:", h_t_future_pred.shape)
+
+                    # Loss: Predicting future hidden state from real imagined states
+                    future_loss = torch.nn.functional.mse_loss(h_t_future_pred, h_t_future)
+
+            # Log statistics
+            metrics["future_loss"] = to_np(future_loss)
+
+            # Apply optimization step using self._future_opt
+            with tools.RequiresGrad(self):
+                metrics.update(self._task_behavior._future_opt(future_loss, self.future_predictor.parameters()))
+
+
+        # Store metrics
+        for name, value in metrics.items():
+            if not name in self._metrics.keys():
+                self._metrics[name] = [value]
+            else:
+                self._metrics[name].append(value)
+                
+                
+    ### New
+    def _predict_future_state(self, latent):
+        """
+        Predicts a future latent state using a learned function.
+        """
+        h_t = latent["deter"]  # Deterministic hidden state
+        s_t = latent["stoch"]  # Stochastic latent state
+
+        # Predict future latent state
+        future_latent_pred = self.future_predictor(h_t, s_t)
+
+        return future_latent_pred
+    
+    def _select_best_action(self, feat, latent):
+        num_candidates = self._config.num_action_candidates # add these two
+        imagination_horizon = self._config.imag_horizon
+        actor = self._task_behavior.actor(feat)
+        action_candidates = actor.sample((num_candidates,))  # Shape: [num_candidates, action_dim]
+
+        # Simulate multiple future steps using _imagine for each action candidate
+        rewards = []
+        for i in range(num_candidates):
+            start_state = {k: v.unsqueeze(0) for k, v in latent.items()}  # Add batch dimension
+            imagined_feats, imagined_states, _ = self._task_behavior._imagine(
+                start_state, lambda f: action_candidates[i].unsqueeze(0), imagination_horizon
+            )
+            
+            reward = self._wm.heads["reward"](imagined_feats).mean()
+            rewards.append(reward)
+
+        rewards = torch.stack(rewards)
+        best_action_idx = torch.argmax(rewards)
+        best_action = action_candidates[best_action_idx]
+        
+        return best_action
 
 
 def count_steps(folder):
@@ -203,6 +333,8 @@ def make_env(config, mode, id):
     return env
 
 
+
+
 def main(config):
     tools.set_seed_everywhere(config.seed)
     if config.deterministic_run:
@@ -246,6 +378,11 @@ def main(config):
     acts = train_envs[0].action_space
     print("Action Space", acts)
     config.num_actions = acts.n if hasattr(acts, "n") else acts.shape[0]
+    
+    # setup 
+    if config.future:
+        config.future_horizon = 10
+        config.future_dim = config.dyn_deter
 
     state = None
     if not config.offline_traindir:
@@ -363,3 +500,5 @@ if __name__ == "__main__":
         arg_type = tools.args_type(value)
         parser.add_argument(f"--{key}", type=arg_type, default=arg_type(value))
     main(parser.parse_args(remaining))
+
+# python3 dreamer.py --configs dmc_vision --task dmc_walker_walk --logdir ./logdir/ema/dmc_walker_walk --combine True

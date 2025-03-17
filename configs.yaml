@@ -19,6 +19,11 @@ defaults:
   debug: False
   video_pred_log: True
 
+  future: False
+  combine: False
+  best_candidate: False
+  num_action_candidates: 10
+
   # Environment
   task: 'dmc_walker_walk'
   size: [64, 64]

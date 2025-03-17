@@ -217,7 +217,7 @@ class RSSM(nn.Module):
         # (batch, stoch * discrete_num + action, embed) -> (batch, hidden)
         x = self._img_in_layers(x)
         for _ in range(self._rec_depth):  # rec depth is not correctly implemented
-            deter = prev_state["deter"]
+            deter = prev_state["deter"] # this part is weird
             # (batch, hidden), (batch, deter) -> (batch, deter), (batch, deter)
             x, deter = self._cell(x, [deter])
             deter = deter[0]  # Keras wraps the state in a list.
@@ -808,3 +808,6 @@ class ImgChLayerNorm(nn.Module):
         x = self.norm(x)
         x = x.permute(0, 3, 1, 2)
         return x
+
+
+
