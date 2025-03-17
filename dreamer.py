@@ -323,6 +323,13 @@ def make_env(config, mode, id):
 
         env = minecraft.make_env(task, size=config.size, break_speed=config.break_speed)
         env = wrappers.OneHotAction(env)
+    if suite == "metaworld":
+        import envs.metaworld_env as metaworld
+
+        env = metaworld.MetaWorldEnv(
+            task, action_repeat=config.action_repeat, size=config.size, seed=config.seed + id
+        )
+        env = wrappers.NormalizeActions(env)
     else:
         raise NotImplementedError(suite)
     env = wrappers.TimeLimit(env, config.time_limit)
