@@ -98,6 +98,18 @@ defaults:
   disag_units: 400
   disag_action_cond: False
 
+# new meta world 
+metaworld:
+  steps: 1e6
+  action_repeat: 2
+  envs: 1
+  train_ratio: 512
+  time_limit: 500
+  reward_EMA: True
+  encoder: {mlp_keys: '$^', cnn_keys: 'image'}
+  decoder: {mlp_keys: '$^', cnn_keys: 'image'}
+
+
 dmc_proprio:
   steps: 5e5
   action_repeat: 2
