@@ -1,28 +1,40 @@
 import gym
 import numpy as np
+
+# Add this before importing mujoco_py or metaworld
+import os
+os.environ['MUJOCO_GL'] = 'egl'
+
 import metaworld
+
 
 class MetaWorldEnv:
     metadata = {}
 
-    def __init__(self, action_repeat=2, size=(64, 64), seed=0, time_limit=500):
-        env_name = "pick-place-v2"  # Specific task
+    def __init__(self, name, action_repeat=2, size=(64, 64), seed=0, time_limit=500):
+        # Strip metaworld_ prefix if present
+        if name.startswith("metaworld_"):
+            task_name = name[len("metaworld_") :]
+        else:
+            task_name = name
 
-        # Load MetaWorld task
-        ml1 = metaworld.ML1(env_name)
+        # Load MetaWorld task suite
+        ml1 = metaworld.ML1(task_name)
 
-        self._env = ml1.train_classes[env_name]()  # Create environment instance
+        # Create environment instance
+        self._env = ml1.train_classes[task_name]()
         self._env.action_space.seed(seed)
         self._env.observation_space.seed(seed)
 
-        # Set an initial task
-        self._task = ml1.train_tasks[0]
+        # Find and set the corresponding task
+        self._task = next(t for t in ml1.train_tasks if t.env_name == task_name)
         self._env.set_task(self._task)
 
         self._action_repeat = action_repeat
         self._size = size
         self.time_limit = time_limit
         self.reward_range = (-np.inf, np.inf)
+
 
     @property
     def observation_space(self):
@@ -40,33 +52,34 @@ class MetaWorldEnv:
         return self._env.action_space
 
     def step(self, action):
-        """Executes an action and returns formatted observations."""
-        assert np.isfinite(action).all(), action
         total_reward = 0
         done = False
         info = {}
 
         for _ in range(self._action_repeat):
             obs, step_reward, done, step_info = self._env.step(action)
+            if isinstance(obs, tuple):
+                obs = obs[0]
             total_reward += step_reward
             info.update(step_info)
             if done:
                 break
         
-        # Define is_terminal similar to DMC
-        is_terminal = done and info.get("success", 0) == 0  # Failure if done but task not solved
+        is_terminal = done and info.get("success", 0) == 0
 
         obs_dict = {
             "state": np.array(obs, dtype=np.float32),
             "image": self.render(),
-            "is_terminal": is_terminal,  # Tracks unrecoverable failures
-            "is_first": False,  # No explicit first-step tracking in Meta-World
+            "is_terminal": is_terminal,
+            "is_first": False,
         }
         return obs_dict, total_reward, done, info
 
+
     def reset(self):
         """Resets the environment and returns the initial observation."""
-        obs = self._env.reset()
+        obs, _  = self._env.reset()
+
         obs_dict = {
             "state": np.array(obs, dtype=np.float32),
             "image": self.render(),
@@ -77,4 +90,14 @@ class MetaWorldEnv:
 
     def render(self, mode="rgb_array"):
         """Returns an image observation of the current state."""
-        return self._env.sim.render(width=self._size[0], height=self._size[1], camera_name="corner2")
+        # Debug the environment structure
+        print(dir(self._env))
+        
+        # Try direct access to sim
+        return self._env.sim.render(
+            width=self._size[0],
+            height=self._size[1],
+            camera_name="corner2"
+        )
+    
+
