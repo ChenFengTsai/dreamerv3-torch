@@ -2,8 +2,8 @@ import gym
 import numpy as np
 
 # Add this before importing mujoco_py or metaworld
-import os
-os.environ['MUJOCO_GL'] = 'egl'
+# import os
+# os.environ['MUJOCO_GL'] = 'egl'
 
 import metaworld
 

@@ -21,8 +21,13 @@ defaults:
 
   future: False
   combine: False
-  best_candidate: False
-  num_action_candidates: 10
+  counterfactual_candidate: True
+
+  num_action_candidates: 8
+  counterfactual_horizon: 10
+  regret_scale: 1.0
+  impact_scale: 0.2
+
 
   # Environment
   task: 'dmc_walker_walk'
@@ -199,3 +204,7 @@ debug:
   prefill: 1
   batch_size: 10
   batch_length: 20
+
+
+# python dreamer.py --configs configs.yaml --task debug --logdir ./dreamerv3-torch/logdir/dmc_walker_walk/debug --device cuda:3
+# python dreamer.py --configs dmc_vision --task dmc_walker_walk --logdir ./dreamerv3-torch/logdir/dmc_walker_walk/counterfactual --device cuda:3

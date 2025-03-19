@@ -5,8 +5,8 @@ import pathlib
 import sys
 from torch.utils.tensorboard import SummaryWriter
 
-# os.environ["MUJOCO_GL"] = "osmesa"
-os.environ['MUJOCO_GL'] = 'egl'
+os.environ["MUJOCO_GL"] = "osmesa"
+# os.environ['MUJOCO_GL'] = 'egl'
 
 import numpy as np
 import ruamel.yaml as yaml
@@ -35,7 +35,7 @@ class Dreamer(nn.Module):
         # new
         self._future = config.future
         self._combine = config.combine
-        self._best_candidate = config.best_candidate
+        self._counterfactual_candidate = config.counterfactual_candidate
         self._should_log = tools.Every(config.log_every)
         batch_steps = config.batch_size * config.batch_length
         self._should_train = tools.Every(batch_steps / config.train_ratio)
@@ -148,8 +148,8 @@ class Dreamer(nn.Module):
             actor = self._expl_behavior.actor(feat)
             action = actor.sample()
         else:
-            if self._best_candidate:
-                action = self._select_best_action(feat, latent)
+            if self._counterfactual_candidate:
+                a_best, a_worst, action, R_a_best, R_a_worst, R_a_sample = self._task_behavior.select_counterfactual_actions(feat, latent)
             else:
                 actor = self._task_behavior.actor(feat)
                 action = actor.sample()
@@ -225,7 +225,9 @@ class Dreamer(nn.Module):
                 self._metrics[name] = [value]
             else:
                 self._metrics[name].append(value)
-                
+    
+    
+
                 
     ### New
     def _predict_future_state(self, latent):
@@ -240,28 +242,33 @@ class Dreamer(nn.Module):
 
         return future_latent_pred
     
-    def _select_best_action(self, feat, latent):
-        num_candidates = self._config.num_action_candidates # add these two
-        imagination_horizon = self._config.imag_horizon
-        actor = self._task_behavior.actor(feat)
-        action_candidates = actor.sample((num_candidates,))  # Shape: [num_candidates, action_dim]
+    # def _select_best_action(self, feat, latent):
+    #     num_candidates = self._config.num_action_candidates # add these two
+    #     imagination_horizon = self._config.imag_horizon
+    #     actor = self._task_behavior.actor(feat)
+    #     action_candidates = actor.sample((num_candidates,))  # Shape: [num_candidates, action_dim]
 
-        # Simulate multiple future steps using _imagine for each action candidate
-        rewards = []
-        for i in range(num_candidates):
-            start_state = {k: v.unsqueeze(0) for k, v in latent.items()}  # Add batch dimension
-            imagined_feats, imagined_states, _ = self._task_behavior._imagine(
-                start_state, lambda f: action_candidates[i].unsqueeze(0), imagination_horizon
-            )
+    #     # Simulate multiple future steps using _imagine for each action candidate
+    #     rewards = []
+    #     for i in range(num_candidates):
+    #         start_state = {k: v.unsqueeze(0) for k, v in latent.items()}  # Add batch dimension
+    #         imagined_feats, imagined_states, _ = self._task_behavior._imagine(
+    #             start_state, self._task_behavior.actor, imagination_horizon // this line has issue
+    #         )
             
-            reward = self._wm.heads["reward"](imagined_feats).mean()
-            rewards.append(reward)
+    #         reward = self._wm.heads["reward"](imagined_feats).mean()
+    #         rewards.append(reward)
 
-        rewards = torch.stack(rewards)
-        best_action_idx = torch.argmax(rewards)
-        best_action = action_candidates[best_action_idx]
+    #     rewards = torch.stack(rewards)
+    #     best_action_idx = torch.argmax(rewards)
+    #     best_action = action_candidates[best_action_idx]
         
-        return best_action
+    #     return best_action
+    
+
+
+
+
 
 
 def count_steps(folder):
@@ -324,7 +331,7 @@ def make_env(config, mode, id):
 
         env = minecraft.make_env(task, size=config.size, break_speed=config.break_speed)
         env = wrappers.OneHotAction(env)
-    if suite == "metaworld":
+    elif suite == "metaworld":
         import envs.metaworld_env as metaworld
 
         env = metaworld.MetaWorldEnv(

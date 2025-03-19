@@ -210,6 +210,8 @@ class WorldModel(nn.Module):
         error = (model - truth + 1.0) / 2.0
 
         return torch.cat([truth, model, error], 2)
+    
+
 
 
 class ImagBehavior(nn.Module):
@@ -221,6 +223,7 @@ class ImagBehavior(nn.Module):
         # new
         self._future = config.future
         self._combine = config.combine
+        self._counterfactual_candidate = config.counterfactual_candidate
 
         kw = dict(wd=config.weight_decay, opt=config.opt, use_amp=self._use_amp)
         
@@ -341,6 +344,17 @@ class ImagBehavior(nn.Module):
                 # print('deter shape', self.saved_deter.shape)
                 # print('stoch shape', self.saved_stoch.shape)
                 
+                if self._counterfactual_candidate:
+                    # ===== Counterfactual branching at t=0 =====
+                    initial_state = {k: v[0].detach() for k, v in imag_state.items()}
+                    initial_feat = imag_feat[0].detach()
+
+                    (a_best, a_worst, a_sample, R_a_best, R_a_worst, R_a_sample) = self.select_counterfactual_actions(initial_feat, initial_state)
+
+                    loss_regret = R_a_best - R_a_sample
+                    loss_impact = -(R_a_sample - R_a_worst)
+
+                
                 reward = objective(imag_feat, imag_state, imag_action)
                 actor_ent = self.actor(imag_feat).entropy()
                 state_ent = self._world_model.dynamics.get_dist(imag_state).entropy()
@@ -355,6 +369,15 @@ class ImagBehavior(nn.Module):
                     weights,
                     base,
                 )
+                # Add regret and impact penalty here (scalar terms)
+                if self._counterfactual_candidate:
+                    actor_loss = actor_loss + self._config.regret_scale * loss_regret + self._config.impact_scale * loss_impact
+                    metrics["loss_regret"] = loss_regret.item()
+                    metrics["loss_impact"] = loss_impact.item()
+                    metrics["counterfactual_R_best"] = R_a_best.item()
+                    metrics["counterfactual_R_sample"] = R_a_sample.item()
+                    metrics["counterfactual_R_worst"] = R_a_worst.item()      
+                             
                 actor_loss -= self._config.actor["entropy"] * actor_ent[:-1, ..., None]
                 actor_loss = torch.mean(actor_loss)
                 metrics.update(mets)
@@ -389,7 +412,7 @@ class ImagBehavior(nn.Module):
             metrics.update(self._value_opt(value_loss, self.value.parameters()))
         return imag_feat, imag_state, imag_action, weights, metrics
 
-    def _imagine(self, start, policy, horizon):
+    def _imagine(self, start, policy, horizon, first_action=None):
         dynamics = self._world_model.dynamics
         flatten = lambda x: x.reshape([-1] + list(x.shape[2:]))
         start = {k: flatten(v) for k, v in start.items()}
@@ -454,8 +477,7 @@ class ImagBehavior(nn.Module):
                     'count': new_count
                 }
                 return new_state, policy_input, action
-
-
+                
             else:
                 state, _, _ = prev
                 feat = dynamics.get_feat(state).detach()
@@ -464,7 +486,26 @@ class ImagBehavior(nn.Module):
                 return succ, feat, action
 
         # Run static_scan
-        succ_out, feats, actions = tools.static_scan(step, [torch.arange(horizon)], init_state)
+        if self._counterfactual_candidate:
+            if first_action is not None:
+                # First step manually
+                state = dynamics.img_step(init_state[0], first_action)
+                feat = dynamics.get_feat(state).detach()
+
+                new_init_state = (state, feat, first_action)
+
+                # Continue static_scan from t=1
+                succ_out, feats, actions = tools.static_scan(step, [torch.arange(horizon - 1)], new_init_state)
+
+                # Prepend first step results:
+                succ_out = {k: torch.cat([state[k].unsqueeze(0), v], dim=0) for k, v in succ_out.items()}
+                feats = torch.cat([feat.unsqueeze(0), feats], dim=0)
+                actions = torch.cat([first_action.unsqueeze(0), actions], dim=0)
+                
+            else:
+                succ_out, feats, actions = tools.static_scan(step, [torch.arange(horizon)], init_state)
+        else:
+            succ_out, feats, actions = tools.static_scan(step, [torch.arange(horizon)], init_state)
 
         # Extract correct states
         if self._combine:
@@ -546,6 +587,59 @@ class ImagBehavior(nn.Module):
                     d.data = mix * s.data + (1 - mix) * d.data
             self._updates += 1
        
+       
+    def select_counterfactual_actions(self, feat, latent_state):
+        num_candidates = self._config.num_action_candidates
+        imagination_horizon = self._config.counterfactual_horizon
+
+        # At the very beginning (latent_state = initial state)
+        start_state = {k: v.unsqueeze(0) for k, v in latent_state.items()}
+        
+        # Sample multiple candidate actions from the same distribution
+        actor = self.actor(feat)
+        candidate_actions = actor.sample((num_candidates,))  # [N, action_dim]    
+        candidate_rewards = []
+        for i in range(num_candidates):
+            branch_start = {k: v.unsqueeze(0) for k, v in latent_state.items()}
+            branch_feats, _, _ = self._imagine(
+                start_state,
+                self.actor,
+                imagination_horizon,
+                first_action=candidate_actions[i]
+            )
+            branch_reward = self._world_model.heads["reward"](branch_feats).mean()
+            
+            branch_reward_total = branch_reward.sum(dim=(0, 1)) 
+            candidate_rewards.append(branch_reward_total)
+            
+        candidate_rewards = torch.stack(candidate_rewards)
+        candidate_rewards = candidate_rewards.squeeze(-1)
+
+        # Get best, worst, and a random sampled action (not best or worst)
+        best_idx = torch.argmax(candidate_rewards)
+        worst_idx = torch.argmin(candidate_rewards)
+        
+
+        # Sample another fresh action from actor as a_sample (current policy action)
+        a_sample = actor.sample()  # Just one from the dist
+
+        a_best = candidate_actions[best_idx]
+        a_worst = candidate_actions[worst_idx]
+
+        R_a_best = candidate_rewards[best_idx]
+        R_a_worst = candidate_rewards[worst_idx]
+        
+        # Evaluate return from a_sample branch
+        branch_start = {k: v.unsqueeze(0) for k, v in latent_state.items()}
+        sample_feats, _, _ = self._imagine(
+            branch_start, 
+            self.actor, 
+            imagination_horizon
+        )
+        R_a_sample = self._world_model.heads["reward"](sample_feats).mean()
+        sample_reward_total = R_a_sample.sum(dim=(0, 1)) 
+
+        return a_best, a_worst, a_sample, R_a_best, R_a_worst, sample_reward_total
        
 # new     
 # class FutureHiddenPredictor(nn.Module):

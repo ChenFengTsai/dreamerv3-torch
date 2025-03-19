@@ -8,11 +8,13 @@
 # time_step = env.reset()
 # print(time_step.observation.keys())import metaworld
 
-import metaworld
-import gym
+# import metaworld
+# import gym
 
-ml1 = metaworld.ML1('pick-place-v2')  # Load a single-task benchmark
-env = ml1.train_classes['pick-place-v2']()  # Create the environment instance
-print("Meta-World Environment Loaded Successfully!")
+# ml1 = metaworld.ML1('pick-place-v2')  # Load a single-task benchmark
+# env = ml1.train_classes['pick-place-v2']()  # Create the environment instance
+# print("Meta-World Environment Loaded Successfully!")
 
 
+import mujoco
+print(mujoco.__version__)
