@@ -609,7 +609,7 @@ class ImagBehavior(nn.Module):
             )
             branch_reward = self._world_model.heads["reward"](branch_feats).mean()
             
-            branch_reward_total = branch_reward.sum(dim=(0, 1)) 
+            branch_reward_total = branch_reward.mean(dim=(0, 1)) 
             candidate_rewards.append(branch_reward_total)
             
         candidate_rewards = torch.stack(candidate_rewards)
@@ -637,7 +637,7 @@ class ImagBehavior(nn.Module):
             imagination_horizon
         )
         R_a_sample = self._world_model.heads["reward"](sample_feats).mean()
-        sample_reward_total = R_a_sample.sum(dim=(0, 1)) 
+        sample_reward_total = R_a_sample.mean(dim=(0, 1)) 
 
         return a_best, a_worst, a_sample, R_a_best, R_a_worst, sample_reward_total
        

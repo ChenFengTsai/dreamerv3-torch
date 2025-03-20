@@ -1,10 +1,12 @@
 import gym
 import numpy as np
+import sys
+import cv2
 
 # Add this before importing mujoco_py or metaworld
 # import os
 # os.environ['MUJOCO_GL'] = 'egl'
-
+sys.path.append('/home/richtsai1103/CRL/Metaworld')
 import metaworld
 
 
@@ -52,17 +54,17 @@ class MetaWorldEnv:
         return self._env.action_space
 
     def step(self, action):
-        total_reward = 0
+        total_reward = 0.0
         done = False
         info = {}
 
         for _ in range(self._action_repeat):
-            obs, step_reward, done, step_info = self._env.step(action)
+            obs, step_reward, done, truncated, step_info  = self._env.step(action)
             if isinstance(obs, tuple):
                 obs = obs[0]
             total_reward += step_reward
             info.update(step_info)
-            if done:
+            if done or truncated:
                 break
         
         is_terminal = done and info.get("success", 0) == 0
@@ -89,15 +91,12 @@ class MetaWorldEnv:
         return obs_dict
 
     def render(self, mode="rgb_array"):
-        """Returns an image observation of the current state."""
-        # Debug the environment structure
-        print(dir(self._env))
-        
-        # Try direct access to sim
-        return self._env.sim.render(
-            width=self._size[0],
-            height=self._size[1],
-            camera_name="corner2"
-        )
+        img = self._env.mujoco_renderer.render(render_mode=mode)
+        img = cv2.resize(img, self._size, interpolation=cv2.INTER_AREA)
+        return img
+
+
+
+
     
 
