@@ -36,6 +36,7 @@ class Dreamer(nn.Module):
         self._future = config.future
         self._combine = config.combine
         self._counterfactual_candidate = config.counterfactual_candidate
+        self._best_candidate = config.best_candidate
         self._should_log = tools.Every(config.log_every)
         batch_steps = config.batch_size * config.batch_length
         self._should_train = tools.Every(batch_steps / config.train_ratio)
@@ -148,8 +149,9 @@ class Dreamer(nn.Module):
             actor = self._expl_behavior.actor(feat)
             action = actor.sample()
         else:
-            if self._counterfactual_candidate:
+            if self._best_candidate:
                 a_best, a_worst, action, R_a_best, R_a_worst, R_a_sample = self._task_behavior.select_counterfactual_actions(feat, latent)
+                action = a_best
             else:
                 actor = self._task_behavior.actor(feat)
                 action = actor.sample()

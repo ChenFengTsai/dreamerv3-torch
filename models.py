@@ -348,8 +348,25 @@ class ImagBehavior(nn.Module):
                     # ===== Counterfactual branching at t=0 =====
                     initial_state = {k: v[0].detach() for k, v in imag_state.items()}
                     initial_feat = imag_feat[0].detach()
-
+                    
                     (a_best, a_worst, a_sample, R_a_best, R_a_worst, R_a_sample) = self.select_counterfactual_actions(initial_feat, initial_state)
+                    
+                    # Repeat start states twice (for best & worst)
+                    start_double = {k: v.repeat_interleave(2, dim=0) for k, v in start.items()}
+
+                    # Concatenate best and worst actions for forced rollout
+                    forced_actions = torch.cat([a_best, a_worst], dim=0)
+                    
+                    imag_feat_best, imag_state_best, imag_action_best = self._imagine(
+                        start, self.actor, self._config.imag_horizon, first_action=a_best
+                    )
+                    imag_feat_worst, imag_state_worst, imag_action_worst = self._imagine(
+                        start, self.actor, self._config.imag_horizon, first_action=a_worst
+                    )
+                    
+                    imag_feat = torch.cat([imag_feat_best, imag_feat_worst], dim=1)
+                    imag_state = {k: torch.cat([imag_state_best[k], imag_state_worst[k]], dim=1) for k in imag_state_best}
+                    imag_action = torch.cat([imag_action_best, imag_action_worst], dim=1)
 
                     loss_regret = R_a_best - R_a_sample
                     loss_impact = -(R_a_sample - R_a_worst)
@@ -432,8 +449,6 @@ class ImagBehavior(nn.Module):
                 None,
                 None
             )
-
-
         else:
             init_state = (start, None, None)
 
@@ -607,7 +622,7 @@ class ImagBehavior(nn.Module):
                 imagination_horizon,
                 first_action=candidate_actions[i]
             )
-            branch_reward = self._world_model.heads["reward"](branch_feats).mean()
+            branch_reward = self._world_model.heads["reward"](branch_feats).mode()
             
             branch_reward_total = branch_reward.mean(dim=(0, 1)) 
             candidate_rewards.append(branch_reward_total)
@@ -634,7 +649,8 @@ class ImagBehavior(nn.Module):
         sample_feats, _, _ = self._imagine(
             branch_start, 
             self.actor, 
-            imagination_horizon
+            imagination_horizon,
+            first_action=a_sample
         )
         R_a_sample = self._world_model.heads["reward"](sample_feats).mean()
         sample_reward_total = R_a_sample.mean(dim=(0, 1)) 

@@ -17,6 +17,22 @@ class DeepMindControl:
                 task,
                 task_kwargs={"random": seed},
             )
+            
+            # todo
+            # # Change gravity
+            # self._env.physics.model.opt.gravity[:] = [0, 0, -15.0]  # Stronger gravity
+
+            # # Scale all body masses
+            # mass_scale = 1.2  # Increase all masses by 20%
+            # self._env.physics.model.body_mass[:] *= mass_scale
+
+            # # Reduce friction for every geom (more slippery environment)
+            # for geom_id in range(self._env.physics.model.ngeom):
+            #     self._env.physics.model.geom_friction[geom_id] = [0.1, 0.01, 0.001]
+
+            # # Limit actuator strength (makes the humanoid weaker)
+            # self._env.physics.model.actuator_gainprm[:, 0] *= 0.8
+
         else:
             assert task is None
             self._env = domain()

@@ -21,13 +21,22 @@ defaults:
 
   future: False
   combine: False
-  counterfactual_candidate: True
+  counterfactual_candidate: False
+  best_candidate: False
 
   num_action_candidates: 8
   counterfactual_horizon: 10
-  regret_scale: 0.3
-  impact_scale: 0.1
+  # ppo
+  # regret_scale: 0.3
+  # impact_scale: 0.3
 
+  # # exp
+  # regret_scale: 0.1
+  # impact_scale: 0.1
+
+  # eff
+  regret_scale: 0.01
+  impact_scale: 0.01
 
   # Environment
   task: 'dmc_walker_walk'
@@ -205,7 +214,16 @@ debug:
   batch_size: 10
   batch_length: 20
 
+# python dreamer.py --configs dmc_vision --task dmc_walker_walk --logdir ./logdir/dmc_walker_walk/original --device cuda:4
 
 # python dreamer.py --configs configs.yaml --task debug --logdir ./dreamerv3-torch/logdir/dmc_walker_walk/debug --device cuda:3
-# python dreamer.py --configs dmc_vision --task dmc_walker_walk --logdir ./logdir/dmc_walker_walk/counterfactual --device cuda:3
-# ./xvfb_run.sh python3 ./dreamer.py   --configs metaworld   --task metaworld_pick-place-v2   --logdir ./logdir/metaworld_pick-place-v2/   --device cuda:3c
+# python dreamer.py --configs dmc_vision --task dmc_walker_walk --logdir ./logdir/dmc_walker_walk/counterfactual/0.3_0.3 --regret_scale 0.3 --impact_scale 0.1 --device cuda:1
+
+# meta
+# ./xvfb_run.sh python3 ./dreamer.py   --configs metaworld   --task metaworld_pick-place-v2   --logdir ./logdir/metaworld_pick-place-v2/original   --device cuda:1
+
+# 0.01
+# python dreamer.py --configs dmc_vision --task dmc_walker_walk --logdir ./logdir/dmc_walker_walk/counterfactual/0.01_0.01 --regret_scale 0.01 --impact_scale 0.01 --device cuda:2 --counterfactual_candidate True
+
+# 0.1
+# python dreamer.py --configs dmc_vision --task dmc_walker_walk --counterfactual_candidate True --logdir ./logdir/dmc_walker_walk/counterfactual/0.1_0.1 --regret_scale 0.1 --impact_scale 0.1 --device cuda:1

@@ -13,7 +13,7 @@ import metaworld
 class MetaWorldEnv:
     metadata = {}
 
-    def __init__(self, name, action_repeat=2, size=(64, 64), seed=0, time_limit=500):
+    def __init__(self, name, action_repeat=2, size=(64, 64), seed=0):
         # Strip metaworld_ prefix if present
         if name.startswith("metaworld_"):
             task_name = name[len("metaworld_") :]
@@ -34,7 +34,6 @@ class MetaWorldEnv:
 
         self._action_repeat = action_repeat
         self._size = size
-        self.time_limit = time_limit
         self.reward_range = (-np.inf, np.inf)
 
 
@@ -67,7 +66,8 @@ class MetaWorldEnv:
             if done or truncated:
                 break
         
-        is_terminal = done and info.get("success", 0) == 0
+        # is_terminal = done and info.get("success", 0) == 0
+        is_terminal = done
 
         obs_dict = {
             "state": np.array(obs, dtype=np.float32),
