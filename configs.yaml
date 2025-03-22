@@ -223,7 +223,9 @@ debug:
 # ./xvfb_run.sh python3 ./dreamer.py   --configs metaworld   --task metaworld_pick-place-v2   --logdir ./logdir/metaworld_pick-place-v2/original   --device cuda:1
 
 # 0.01
-# python dreamer.py --configs dmc_vision --task dmc_walker_walk --logdir ./logdir/dmc_walker_walk/counterfactual/0.01_0.01 --regret_scale 0.01 --impact_scale 0.01 --device cuda:2 --counterfactual_candidate True
+# python dreamer.py --configs dmc_vision --task dmc_walker_walk --logdir ./logdir/dmc_walker_walk/counterfactual_new/0.01_0.01 --regret_scale 0.01 --impact_scale 0.01 --device cuda:2 --counterfactual_candidate True
 
 # 0.1
 # python dreamer.py --configs dmc_vision --task dmc_walker_walk --counterfactual_candidate True --logdir ./logdir/dmc_walker_walk/counterfactual/0.1_0.1 --regret_scale 0.1 --impact_scale 0.1 --device cuda:1
+
+python dreamer.py --configs dmc_vision --task dmc_walker_walk --logdir ./logdir/dmc_walker_walk/counterfactual_new/0.01_0.01 --regret_scale 0.01 --impact_scale 0.01 --device cuda:2 --counterfactual_candidate True
