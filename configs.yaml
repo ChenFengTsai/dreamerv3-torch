@@ -19,6 +19,11 @@ defaults:
   debug: False
   video_pred_log: True
 
+  eval_only : True
+
+  action_perturb: True
+  action_noise_scale : 0.3
+
   future: False
   combine: False
   counterfactual_candidate: False
@@ -230,8 +235,11 @@ debug:
 
 #screen counter0.01 no reward walker
 #screen dyna yes reward 0.01 walker
+
 #screen original reacher 
 #screen noreward reacher counter no reward
+#screen reward0.1 reacher counter 
+# : python dreamer.py --configs dmc_vision --task dmc_reacher_easy --logdir ./logdir/dmc_reacher_easy/counterfactual/0.1_0.1 --regret_scale 0.1 --impact_scale 0.1 --device cuda:3 --counterfactual_candidate True --parallel True
 
 # dyna
 # python dreamer.py --configs dmc_vision --task dmc_walker_walk --logdir ./logdir/dmc_walker_walk/counterfactual_new/0.01_0.01 --regret_scale 0.01 --impact_scale 0.01 --device cuda:4 --counterfactual_candidate True

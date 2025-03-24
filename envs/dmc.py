@@ -37,7 +37,7 @@ class DeepMindControl:
             assert task is None
             self._env = domain()
         self._action_repeat = action_repeat
-        self._size = size
+        self._size = tuple(size) if isinstance(size, list) else size
         if camera is None:
             camera = dict(quadruped=2).get(domain, 0)
         self._camera = camera
@@ -52,7 +52,7 @@ class DeepMindControl:
             else:
                 shape = value.shape
             spaces[key] = gym.spaces.Box(-np.inf, np.inf, shape, dtype=np.float32)
-        spaces["image"] = gym.spaces.Box(0, 255, self._size + (3,), dtype=np.uint8)
+        spaces["image"] = gym.spaces.Box(0, 255, tuple(self._size) + (3,), dtype=np.uint8)
         return gym.spaces.Dict(spaces)
 
     @property

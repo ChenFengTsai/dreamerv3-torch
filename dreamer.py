@@ -228,9 +228,7 @@ class Dreamer(nn.Module):
             else:
                 self._metrics[name].append(value)
     
-    
 
-                
     ### New
     def _predict_future_state(self, latent):
         """
@@ -243,34 +241,8 @@ class Dreamer(nn.Module):
         future_latent_pred = self.future_predictor(h_t, s_t)
 
         return future_latent_pred
+
     
-    # def _select_best_action(self, feat, latent):
-    #     num_candidates = self._config.num_action_candidates # add these two
-    #     imagination_horizon = self._config.imag_horizon
-    #     actor = self._task_behavior.actor(feat)
-    #     action_candidates = actor.sample((num_candidates,))  # Shape: [num_candidates, action_dim]
-
-    #     # Simulate multiple future steps using _imagine for each action candidate
-    #     rewards = []
-    #     for i in range(num_candidates):
-    #         start_state = {k: v.unsqueeze(0) for k, v in latent.items()}  # Add batch dimension
-    #         imagined_feats, imagined_states, _ = self._task_behavior._imagine(
-    #             start_state, self._task_behavior.actor, imagination_horizon // this line has issue
-    #         )
-            
-    #         reward = self._wm.heads["reward"](imagined_feats).mean()
-    #         rewards.append(reward)
-
-    #     rewards = torch.stack(rewards)
-    #     best_action_idx = torch.argmax(rewards)
-    #     best_action = action_candidates[best_action_idx]
-        
-    #     return best_action
-    
-
-
-
-
 
 
 def count_steps(folder):
@@ -369,8 +341,17 @@ def main(config):
     config.traindir.mkdir(parents=True, exist_ok=True)
     config.evaldir.mkdir(parents=True, exist_ok=True)
     step = count_steps(config.traindir)
-    # step in logger is environmental step
-    logger = tools.Logger(logdir, config.action_repeat * step)
+    
+    # Prevent creating new tensor summaries during eval_only
+    if config.eval_only:
+        if config.action_perturb:
+            eval_logdir = logdir / f"eval_only_log_action_perturb_{config.action_noise_scale}"
+        else:
+            eval_logdir = logdir / "eval_only_log"
+        logger = tools.Logger(eval_logdir, config.action_repeat * step)
+    else:
+        logger = tools.Logger(logdir, config.action_repeat * step)
+
 
     print("Create envs.")
     if config.offline_traindir:
@@ -438,6 +419,36 @@ def main(config):
     print("Simulate agent.")
     train_dataset = make_dataset(train_eps, config)
     eval_dataset = make_dataset(eval_eps, config)
+    
+
+    if config.action_perturb:
+        def add_action_noise(self, action):
+            noise = torch.randn_like(action) * self._config.action_noise_scale
+            # print("Noise scale:", self._config.action_noise_scale)
+            perturbed_action = action + noise
+            if hasattr(self._task_behavior.actor, "absmax") and self._task_behavior.actor.absmax is not None:
+                perturbed_action = torch.clamp(perturbed_action, -1.0, 1.0)
+            return perturbed_action
+
+        # Patch Dreamer policy for eval noise inside eval_only block
+        original_policy = Dreamer._policy
+
+        def noisy_policy(self, obs, state, training):
+            policy_output, state = original_policy(self, obs, state, training)
+            if hasattr(self._config, 'action_noise_scale') and self._config.action_noise_scale > 0:
+                policy_output["action"] = add_action_noise(self, policy_output["action"])
+            return policy_output, state
+
+        Dreamer._policy = noisy_policy
+        
+    agent = Dreamer(
+        eval_envs[0].observation_space,
+        eval_envs[0].action_space,
+        config,
+        logger,
+        eval_dataset,
+    ).to(config.device)
+    
     agent = Dreamer(
         train_envs[0].observation_space,
         train_envs[0].action_space,
@@ -445,12 +456,39 @@ def main(config):
         logger,
         train_dataset,
     ).to(config.device)
+    
     agent.requires_grad_(requires_grad=False)
+    
     if (logdir / "latest.pt").exists():
         checkpoint = torch.load(logdir / "latest.pt")
         agent.load_state_dict(checkpoint["agent_state_dict"])
         tools.recursively_load_optim_state_dict(agent, checkpoint["optims_state_dict"])
         agent._should_pretrain._once = False
+        
+    
+    if config.eval_only:
+        print("Running evaluation only mode...")
+        eval_policy = functools.partial(agent, training=False)
+        tools.simulate(
+            eval_policy,
+            eval_envs,
+            eval_eps,
+            config.evaldir,
+            logger,
+            is_eval=True,
+            episodes=config.eval_episode_num,
+        )
+        if config.video_pred_log:
+            video_pred = agent._wm.video_pred(next(eval_dataset))
+            logger.video("eval_openl", to_np(video_pred))
+
+        print("Evaluation complete.")
+        for env in eval_envs:
+            try:
+                env.close()
+            except Exception:
+                pass
+        return
 
     # make sure eval will be executed once after config.steps
     while agent._step < config.steps + config.eval_every:
@@ -518,4 +556,3 @@ if __name__ == "__main__":
         parser.add_argument(f"--{key}", type=arg_type, default=arg_type(value))
     main(parser.parse_args(remaining))
 
-# python3 dreamer.py --configs dmc_vision --task dmc_walker_walk --logdir ./logdir/ema/dmc_walker_walk --combine True
