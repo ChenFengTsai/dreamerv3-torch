@@ -228,4 +228,10 @@ debug:
 # 0.1
 # python dreamer.py --configs dmc_vision --task dmc_walker_walk --counterfactual_candidate True --logdir ./logdir/dmc_walker_walk/counterfactual/0.1_0.1 --regret_scale 0.1 --impact_scale 0.1 --device cuda:1
 
-python dreamer.py --configs dmc_vision --task dmc_walker_walk --logdir ./logdir/dmc_walker_walk/counterfactual_new/0.01_0.01 --regret_scale 0.01 --impact_scale 0.01 --device cuda:2 --counterfactual_candidate True
+#screen counter0.01 no reward walker
+#screen dyna yes reward 0.01 walker
+#screen original reacher 
+#screen noreward reacher counter no reward
+
+# dyna
+# python dreamer.py --configs dmc_vision --task dmc_walker_walk --logdir ./logdir/dmc_walker_walk/counterfactual_new/0.01_0.01 --regret_scale 0.01 --impact_scale 0.01 --device cuda:4 --counterfactual_candidate True

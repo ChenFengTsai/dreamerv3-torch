@@ -3,9 +3,6 @@ import numpy as np
 import sys
 import cv2
 
-# Add this before importing mujoco_py or metaworld
-# import os
-# os.environ['MUJOCO_GL'] = 'egl'
 sys.path.append('/home/richtsai1103/CRL/Metaworld')
 import metaworld
 

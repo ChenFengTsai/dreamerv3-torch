@@ -19,7 +19,7 @@ class DeepMindControl:
             )
             
             # todo
-            # # Change gravity
+            # Change gravity
             # self._env.physics.model.opt.gravity[:] = [0, 0, -15.0]  # Stronger gravity
 
             # # Scale all body masses

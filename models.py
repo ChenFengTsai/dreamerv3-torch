@@ -371,7 +371,12 @@ class ImagBehavior(nn.Module):
                     loss_regret = R_a_best - R_a_sample
                     loss_impact = -(R_a_sample - R_a_worst)
 
-                
+                    metrics["loss_regret"] = loss_regret.item()
+                    metrics["loss_impact"] = loss_impact.item()
+                    metrics["counterfactual_R_best"] = R_a_best.item()
+                    metrics["counterfactual_R_sample"] = R_a_sample.item()
+                    metrics["counterfactual_R_worst"] = R_a_worst.item()
+                    
                 reward = objective(imag_feat, imag_state, imag_action)
                 actor_ent = self.actor(imag_feat).entropy()
                 state_ent = self._world_model.dynamics.get_dist(imag_state).entropy()
@@ -386,22 +391,17 @@ class ImagBehavior(nn.Module):
                     weights,
                     base,
                 )
+                
            
                 actor_loss -= self._config.actor["entropy"] * actor_ent[:-1, ..., None]
                 actor_loss = torch.mean(actor_loss)
                 
-                # Add regret and impact penalty here (scalar terms)
                 if self._counterfactual_candidate:
-                    metrics["previous_actor_loss"] = actor_loss
-                    print("previous_actor_loss:", actor_loss)
+                    # print("previous_actor_loss:", actor_loss)
                     actor_loss = actor_loss + self._config.regret_scale * loss_regret + self._config.impact_scale * loss_impact
-                    print("actor_loss:", actor_loss)
-                    metrics["loss_regret"] = loss_regret.item()
-                    metrics["loss_impact"] = loss_impact.item()
-                    metrics["counterfactual_R_best"] = R_a_best.item()
-                    metrics["counterfactual_R_sample"] = R_a_sample.item()
-                    metrics["counterfactual_R_worst"] = R_a_worst.item()   
+                    actor_loss = actor_loss.squeeze()
                     
+                # print("actor_loss:", actor_loss)
                 metrics.update(mets)
                 value_input = imag_feat
 
