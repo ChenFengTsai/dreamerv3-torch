@@ -420,34 +420,6 @@ def main(config):
     train_dataset = make_dataset(train_eps, config)
     eval_dataset = make_dataset(eval_eps, config)
     
-
-    if config.action_perturb:
-        def add_action_noise(self, action):
-            noise = torch.randn_like(action) * self._config.action_noise_scale
-            # print("Noise scale:", self._config.action_noise_scale)
-            perturbed_action = action + noise
-            if hasattr(self._task_behavior.actor, "absmax") and self._task_behavior.actor.absmax is not None:
-                perturbed_action = torch.clamp(perturbed_action, -1.0, 1.0)
-            return perturbed_action
-
-        # Patch Dreamer policy for eval noise inside eval_only block
-        original_policy = Dreamer._policy
-
-        def noisy_policy(self, obs, state, training):
-            policy_output, state = original_policy(self, obs, state, training)
-            if hasattr(self._config, 'action_noise_scale') and self._config.action_noise_scale > 0:
-                policy_output["action"] = add_action_noise(self, policy_output["action"])
-            return policy_output, state
-
-        Dreamer._policy = noisy_policy
-        
-    agent = Dreamer(
-        eval_envs[0].observation_space,
-        eval_envs[0].action_space,
-        config,
-        logger,
-        eval_dataset,
-    ).to(config.device)
     
     agent = Dreamer(
         train_envs[0].observation_space,
@@ -457,6 +429,25 @@ def main(config):
         train_dataset,
     ).to(config.device)
     
+    if config.action_perturb:
+        def add_action_noise(action):
+            noise = torch.randn_like(action) * config.action_noise_scale
+            # print("Noise scale:", self._config.action_noise_scale)
+            perturbed_action = action + noise
+            perturbed_action = torch.clamp(perturbed_action, -1.0, 1.0)
+            return perturbed_action
+
+        # Patch Dreamer policy for eval noise inside eval_only block
+        original_policy = agent._policy
+
+        def noisy_policy(obs, state, training=False):
+            policy_output, state = original_policy(obs, state, training)
+            policy_output["action"] = add_action_noise(policy_output["action"])
+            # print(policy_output["action"])
+            return policy_output, state
+
+        agent._policy = noisy_policy
+        
     agent.requires_grad_(requires_grad=False)
     
     if (logdir / "latest.pt").exists():
@@ -468,6 +459,7 @@ def main(config):
     
     if config.eval_only:
         print("Running evaluation only mode...")
+        # print(eval_eps)
         eval_policy = functools.partial(agent, training=False)
         tools.simulate(
             eval_policy,
@@ -478,9 +470,9 @@ def main(config):
             is_eval=True,
             episodes=config.eval_episode_num,
         )
-        if config.video_pred_log:
-            video_pred = agent._wm.video_pred(next(eval_dataset))
-            logger.video("eval_openl", to_np(video_pred))
+        # if config.video_pred_log:
+        #     video_pred = agent._wm.video_pred(next(eval_dataset))
+        #     logger.video("eval_openl", to_np(video_pred))
 
         print("Evaluation complete.")
         for env in eval_envs:
