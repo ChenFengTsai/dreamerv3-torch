@@ -261,7 +261,7 @@ def make_env(config, mode, id):
         import envs.dmc as dmc
 
         env = dmc.DeepMindControl(
-            task, config.action_repeat, config.size, seed=config.seed + id
+            task, config.action_repeat, config.size, seed=config.seed + id, modify=(config.modify_env, config.gravity_scale)
         )
         env = wrappers.NormalizeActions(env)
     elif suite == "atari":
@@ -343,9 +343,13 @@ def main(config):
     step = count_steps(config.traindir)
     
     # Prevent creating new tensor summaries during eval_only
+    ### Logger ###
     if config.eval_only:
         if config.action_perturb:
             eval_logdir = logdir / f"eval_only_log_action_perturb_{config.action_noise_scale}"
+        elif config.modify_env:
+            eval_logdir = logdir / f"eval_only_log_gravity_{config.gravity_scale}"
+            print(config.gravity_scale)
         else:
             eval_logdir = logdir / "eval_only_log"
         logger = tools.Logger(eval_logdir, config.action_repeat * step)

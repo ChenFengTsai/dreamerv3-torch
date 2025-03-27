@@ -1,14 +1,16 @@
 import gym
 import numpy as np
+import ruamel.yaml as yaml
 
 
 class DeepMindControl:
     metadata = {}
 
-    def __init__(self, name, action_repeat=1, size=(64, 64), camera=None, seed=0):
+    def __init__(self, name, action_repeat=1, size=(64, 64), camera=None, seed=0, modify=None):
         domain, task = name.split("_", 1)
         if domain == "cup":  # Only domain with multiple words.
             domain = "ball_in_cup"
+            
         if isinstance(domain, str):
             from dm_control import suite
 
@@ -20,7 +22,8 @@ class DeepMindControl:
             
             # todo
             # Change gravity
-            # self._env.physics.model.opt.gravity[:] = [0, 0, -15.0]  # Stronger gravity
+            if modify[0]:
+                self._env.physics.model.opt.gravity[:] = [0, 0, modify[1]]  # Stronger gravity
 
             # # Scale all body masses
             # mass_scale = 1.2  # Increase all masses by 20%

@@ -24,6 +24,9 @@ defaults:
   action_perturb: False
   action_noise_scale : 0.3
 
+  modify_env: False
+  gravity_scale: null
+
   future: False
   combine: False
   counterfactual_candidate: False
