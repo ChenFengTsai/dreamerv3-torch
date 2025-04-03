@@ -15,6 +15,7 @@ sys.path.append(str(pathlib.Path(__file__).parent))
 
 import exploration as expl
 import models
+import scm_world_model
 import tools
 import envs.wrappers as wrappers
 from parallel import Parallel, Damy
@@ -28,13 +29,14 @@ to_np = lambda x: x.detach().cpu().numpy()
 
 
 class Dreamer(nn.Module):
-    def __init__(self, obs_space, act_space, config, logger, dataset):
+    def __init__(self, obs_space, act_space, config, logger, dataset, causal_wm=None):
         super(Dreamer, self).__init__()
         self._config = config
         self._logger = logger
         # new
-        self._future = config.future
-        self._combine = config.combine
+        # self._future = config.future
+        # self._combine = config.combine
+        
         self._counterfactual_candidate = config.counterfactual_candidate
         self._best_candidate = config.best_candidate
         self._should_log = tools.Every(config.log_every)
@@ -49,15 +51,18 @@ class Dreamer(nn.Module):
         self._update_count = 0
         self._dataset = dataset
         self._use_amp = True if config.precision == 16 else False
-        self._wm = models.WorldModel(obs_space, act_space, self._step, config)
+        if config.causal_world_model & causal_wm:
+            self._wm = scm_world_model.WorldModelWithSCM(obs_space, act_space, self._step, config)
+        else:
+            self._wm = models.WorldModel(obs_space, act_space, self._step, config)
         
         ### new 
-        if self._future:
-            self.future_predictor = models.FutureHiddenPredictor(config, config.future_horizon)
-            # add in self.future_predictor
-            self._task_behavior = models.ImagBehavior(config, self._wm, self.future_predictor)
-        else:
-            self._task_behavior = models.ImagBehavior(config, self._wm)
+        # if self._future:
+        #     self.future_predictor = models.FutureHiddenPredictor(config, config.future_horizon)
+        #     # add in self.future_predictor
+        #     self._task_behavior = models.ImagBehavior(config, self._wm, self.future_predictor)
+        # else:
+        self._task_behavior = models.ImagBehavior(config, self._wm)
             
         if (
             config.compile and os.name != "nt"
@@ -122,22 +127,22 @@ class Dreamer(nn.Module):
         # print(f"original feat shape: {feat.shape}")
         
         # new
-        if self._future:
-            future_hidden = self._predict_future_state(latent)  # Predict future state
-            feat = torch.cat([feat, future_hidden.detach()], dim=-1)  # Concatenate both representations
+        # if self._future:
+        #     future_hidden = self._predict_future_state(latent)  # Predict future state
+        #     feat = torch.cat([feat, future_hidden.detach()], dim=-1)  # Concatenate both representations
             
-        elif self._combine:
-            # Run an imagined rollout from the current latent state
-            horizon = self._config.imag_horizon
-            start = {k: v.unsqueeze(0) for k, v in latent.items()}  # Add time dimension
-            imag_feat, _, _ = self._task_behavior._imagine(start, self._task_behavior.actor, horizon)
+        # elif self._combine:
+        #     # Run an imagined rollout from the current latent state
+        #     horizon = self._config.imag_horizon
+        #     start = {k: v.unsqueeze(0) for k, v in latent.items()}  # Add time dimension
+        #     imag_feat, _, _ = self._task_behavior._imagine(start, self._task_behavior.actor, horizon)
 
-            # Aggregate the imagined features over the horizon (mean pooling)
-            imag_feat_mean = imag_feat.mean(dim=0)  # Shape: [batch_size, feature_dim]
+        #     # Aggregate the imagined features over the horizon (mean pooling)
+        #     imag_feat_mean = imag_feat.mean(dim=0)  # Shape: [batch_size, feature_dim]
 
-            # Concatenate the aggregated imagined features to the current feature
-            size = int(imag_feat_mean.shape[1]/2)
-            feat = torch.cat([feat, imag_feat_mean[:, size:].detach()], dim=-1)
+        #     # Concatenate the aggregated imagined features to the current feature
+        #     size = int(imag_feat_mean.shape[1]/2)
+        #     feat = torch.cat([feat, imag_feat_mean[:, size:].detach()], dim=-1)
             
         # print(f"combined feat shape: {feat.shape}")
     
@@ -196,51 +201,51 @@ class Dreamer(nn.Module):
                 
         ### New Training for FutureHiddenPredictor ###
         # Retrieve stored hidden states from `_task_behavior._train()`
-        if self._future:
-            with tools.RequiresGrad(self.future_predictor):
-                with torch.cuda.amp.autocast(self._use_amp):
-                    # Retrieve stored hidden states (current and future)
-                    first_h_t = self._task_behavior.saved_deter[0].detach()  # first
-                    first_s_t = self._task_behavior.saved_stoch[0].detach()  # first
-                    # Target: The deterministic hidden state **10 steps into the future**
-                    h_t_future = self._task_behavior.saved_deter[-1].detach()
-                    # print("h_t_future shape:", h_t_future.shape)
+        # if self._future:
+        #     with tools.RequiresGrad(self.future_predictor):
+        #         with torch.cuda.amp.autocast(self._use_amp):
+        #             # Retrieve stored hidden states (current and future)
+        #             first_h_t = self._task_behavior.saved_deter[0].detach()  # first
+        #             first_s_t = self._task_behavior.saved_stoch[0].detach()  # first
+        #             # Target: The deterministic hidden state **10 steps into the future**
+        #             h_t_future = self._task_behavior.saved_deter[-1].detach()
+        #             # print("h_t_future shape:", h_t_future.shape)
             
-                    # Predict the future hidden states from the current step
-                    h_t_future_pred = self.future_predictor(first_h_t, first_s_t)
-                    # print("h_t_future_pred shape:", h_t_future_pred.shape)
+        #             # Predict the future hidden states from the current step
+        #             h_t_future_pred = self.future_predictor(first_h_t, first_s_t)
+        #             # print("h_t_future_pred shape:", h_t_future_pred.shape)
 
-                    # Loss: Predicting future hidden state from real imagined states
-                    future_loss = torch.nn.functional.mse_loss(h_t_future_pred, h_t_future)
+        #             # Loss: Predicting future hidden state from real imagined states
+        #             future_loss = torch.nn.functional.mse_loss(h_t_future_pred, h_t_future)
 
-            # Log statistics
-            metrics["future_loss"] = to_np(future_loss)
+        #     # Log statistics
+        #     metrics["future_loss"] = to_np(future_loss)
 
-            # Apply optimization step using self._future_opt
-            with tools.RequiresGrad(self):
-                metrics.update(self._task_behavior._future_opt(future_loss, self.future_predictor.parameters()))
+        #     # Apply optimization step using self._future_opt
+        #     with tools.RequiresGrad(self):
+        #         metrics.update(self._task_behavior._future_opt(future_loss, self.future_predictor.parameters()))
 
 
         # Store metrics
-        for name, value in metrics.items():
-            if not name in self._metrics.keys():
-                self._metrics[name] = [value]
-            else:
-                self._metrics[name].append(value)
+        # for name, value in metrics.items():
+        #     if not name in self._metrics.keys():
+        #         self._metrics[name] = [value]
+        #     else:
+        #         self._metrics[name].append(value)
     
 
     ### New
-    def _predict_future_state(self, latent):
-        """
-        Predicts a future latent state using a learned function.
-        """
-        h_t = latent["deter"]  # Deterministic hidden state
-        s_t = latent["stoch"]  # Stochastic latent state
+    # def _predict_future_state(self, latent):
+    #     """
+    #     Predicts a future latent state using a learned function.
+    #     """
+    #     h_t = latent["deter"]  # Deterministic hidden state
+    #     s_t = latent["stoch"]  # Stochastic latent state
 
-        # Predict future latent state
-        future_latent_pred = self.future_predictor(h_t, s_t)
+    #     # Predict future latent state
+    #     future_latent_pred = self.future_predictor(h_t, s_t)
 
-        return future_latent_pred
+    #     return future_latent_pred
 
     
 
@@ -253,6 +258,9 @@ def make_dataset(episodes, config):
     generator = tools.sample_episodes(episodes, config.batch_length)
     dataset = tools.from_generator(generator, config.batch_size)
     return dataset
+
+## todo
+# def make_dataset_counterfactual()
 
 
 def make_env(config, mode, id):
@@ -382,9 +390,9 @@ def main(config):
     config.num_actions = acts.n if hasattr(acts, "n") else acts.shape[0]
     
     # setup 
-    if config.future:
-        config.future_horizon = 10
-        config.future_dim = config.dyn_deter
+    # if config.future:
+    #     config.future_horizon = 10
+    #     config.future_dim = config.dyn_deter
 
     state = None
     if not config.offline_traindir:
@@ -525,7 +533,10 @@ def main(config):
             env.close()
         except Exception:
             pass
+        
 
+    
+    # Continue with normal training loop...
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

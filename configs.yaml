@@ -27,20 +27,16 @@ defaults:
   modify_env: False
   gravity_scale: null
 
-  future: False
-  combine: False
+  # future: False
+  # combine: False
   counterfactual_candidate: False
   best_candidate: False
 
   num_action_candidates: 8
   counterfactual_horizon: 10
-  # ppo
-  # regret_scale: 0.3
-  # impact_scale: 0.3
 
-  # # exp
-  # regret_scale: 0.1
-  # impact_scale: 0.1
+  # Counterfactual Dynamics Configuration
+  causal_world_model: True
 
   # eff
   regret_scale: 0.01

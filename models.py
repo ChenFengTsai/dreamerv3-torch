@@ -221,43 +221,43 @@ class ImagBehavior(nn.Module):
         self._config = config
         self._world_model = world_model
         # new
-        self._future = config.future
-        self._combine = config.combine
+        # self._future = config.future
+        # self._combine = config.combine
         self._counterfactual_candidate = config.counterfactual_candidate
 
         kw = dict(wd=config.weight_decay, opt=config.opt, use_amp=self._use_amp)
         
         # add self.future_predictor new
-        if self._future:
-            self._future_predictor = future_predictor
-            self._future_opt = tools.Optimizer(
-                "future",
-                self._future_predictor.parameters(),
-                config.model_lr,
-                config.opt_eps,
-                config.grad_clip,
-                config.weight_decay,
-                opt=config.opt,
-                use_amp=self._use_amp,
-            )
+        # if self._future:
+        #     self._future_predictor = future_predictor
+        #     self._future_opt = tools.Optimizer(
+        #         "future",
+        #         self._future_predictor.parameters(),
+        #         config.model_lr,
+        #         config.opt_eps,
+        #         config.grad_clip,
+        #         config.weight_decay,
+        #         opt=config.opt,
+        #         use_amp=self._use_amp,
+        #     )
             
-        if self._future:
-            if config.dyn_discrete:
-                feat_size = config.dyn_stoch * config.dyn_discrete + config.dyn_deter + config.future_dim
-            else:
-                feat_size = config.dyn_stoch + config.dyn_deter + config.future_dim
+        # if self._future:
+        #     if config.dyn_discrete:
+        #         feat_size = config.dyn_stoch * config.dyn_discrete + config.dyn_deter + config.future_dim
+        #     else:
+        #         feat_size = config.dyn_stoch + config.dyn_deter + config.future_dim
                 
-        elif self._combine:
-            if config.dyn_discrete:
-                feat_size = 2*(config.dyn_stoch * config.dyn_discrete + config.dyn_deter)
-            else:
-                feat_size = 2*(config.dyn_stoch + config.dyn_deter)
+        # elif self._combine:
+        #     if config.dyn_discrete:
+        #         feat_size = 2*(config.dyn_stoch * config.dyn_discrete + config.dyn_deter)
+        #     else:
+        #         feat_size = 2*(config.dyn_stoch + config.dyn_deter)
             
+        # else:
+        if config.dyn_discrete:
+            feat_size = config.dyn_stoch * config.dyn_discrete + config.dyn_deter
         else:
-            if config.dyn_discrete:
-                feat_size = config.dyn_stoch * config.dyn_discrete + config.dyn_deter
-            else:
-                feat_size = config.dyn_stoch + config.dyn_deter
+            feat_size = config.dyn_stoch + config.dyn_deter
                     
         # print(f'feat_size:', feat_size)
         self.actor = networks.MLP(
@@ -337,9 +337,9 @@ class ImagBehavior(nn.Module):
                 )
                 
                 # new
-                if self._future:
-                    self.saved_deter = imag_state["deter"]
-                    self.saved_stoch = imag_state["stoch"]
+                # if self._future:
+                #     self.saved_deter = imag_state["deter"]
+                #     self.saved_stoch = imag_state["stoch"]
                 
                 # print('deter shape', self.saved_deter.shape)
                 # print('stoch shape', self.saved_stoch.shape)
@@ -398,7 +398,8 @@ class ImagBehavior(nn.Module):
                 
                 if self._counterfactual_candidate:
                     # print("previous_actor_loss:", actor_loss)
-                    actor_loss = actor_loss + self._config.regret_scale * loss_regret + self._config.impact_scale * loss_impact
+                    # contrastive learning
+                    actor_loss = actor_loss - self._config.regret_scale * loss_regret - self._config.impact_scale * loss_impact
                     actor_loss = actor_loss.squeeze()
                     
                 # print("actor_loss:", actor_loss)
@@ -439,71 +440,71 @@ class ImagBehavior(nn.Module):
         flatten = lambda x: x.reshape([-1] + list(x.shape[2:]))
         start = {k: flatten(v) for k, v in start.items()}
 
-        if self._future:
-            init_state = (start, None, None)
+        # if self._future:
+        #     init_state = (start, None, None)
 
-        elif self._combine:
-            initial_feat = dynamics.get_feat(start).detach()
-            state_key = start.keys()
-            init_state = (
-                {
-                    **{f'{k}': v for k, v in start.items()},
-                    'moving_avg': initial_feat,
-                    'count': torch.tensor(1, device=start['deter'].device)
-                },
-                None,
-                None
-            )
-        else:
-            init_state = (start, None, None)
+        # elif self._combine:
+        #     initial_feat = dynamics.get_feat(start).detach()
+        #     state_key = start.keys()
+        #     init_state = (
+        #         {
+        #             **{f'{k}': v for k, v in start.items()},
+        #             'moving_avg': initial_feat,
+        #             'count': torch.tensor(1, device=start['deter'].device)
+        #         },
+        #         None,
+        #         None
+        #     )
+        # else:
+        init_state = (start, None, None)
 
         def step(prev, _):
-            if self._future:
-                state, _, _ = prev
-                feat = dynamics.get_feat(state).detach()
-                future_h_t_pred = self._future_predictor(state["deter"], state["stoch"]).detach()
-                policy_input = torch.cat([feat, future_h_t_pred], dim=-1)
-                action = policy(policy_input).sample()
-                succ = dynamics.img_step(state, action)
-                return succ, policy_input, action
+            # if self._future:
+            #     state, _, _ = prev
+            #     feat = dynamics.get_feat(state).detach()
+            #     future_h_t_pred = self._future_predictor(state["deter"], state["stoch"]).detach()
+            #     policy_input = torch.cat([feat, future_h_t_pred], dim=-1)
+            #     action = policy(policy_input).sample()
+            #     succ = dynamics.img_step(state, action)
+            #     return succ, policy_input, action
 
-            elif self._combine:
-                prev_state, _, _ = prev
-                state = {k: v for k, v in prev_state.items() if k in state_key}
-                moving_avg = prev_state['moving_avg']
-                count = prev_state['count']
+            # elif self._combine:
+            #     prev_state, _, _ = prev
+            #     state = {k: v for k, v in prev_state.items() if k in state_key}
+            #     moving_avg = prev_state['moving_avg']
+            #     count = prev_state['count']
 
-                mode = "ema"
-                if mode == 'avg':
-                    feat = dynamics.get_feat(state).detach()
-                    avg_feat = feat if count == 1 else moving_avg
-                    policy_input = torch.cat([feat, avg_feat], dim=-1)
+                # mode = "ema"
+                # if mode == 'avg':
+                #     feat = dynamics.get_feat(state).detach()
+                #     avg_feat = feat if count == 1 else moving_avg
+                #     policy_input = torch.cat([feat, avg_feat], dim=-1)
                     
-                elif mode == 'ema':
-                    feat = dynamics.get_feat(state).detach()
-                    alpha = 0.99 if count > 1 else 0.0
-                    new_moving_avg = alpha * moving_avg + (1 - alpha) * feat
-                    policy_input = torch.cat([feat, new_moving_avg], dim=-1)
+                # elif mode == 'ema':
+                #     feat = dynamics.get_feat(state).detach()
+                #     alpha = 0.99 if count > 1 else 0.0
+                #     new_moving_avg = alpha * moving_avg + (1 - alpha) * feat
+                #     policy_input = torch.cat([feat, new_moving_avg], dim=-1)
 
-                action = policy(policy_input).sample()
-                succ = dynamics.img_step(state, action)
+                # action = policy(policy_input).sample()
+                # succ = dynamics.img_step(state, action)
 
-                new_moving_avg = (moving_avg * count + feat) / (count + 1)
-                new_count = count + 1
+                # new_moving_avg = (moving_avg * count + feat) / (count + 1)
+                # new_count = count + 1
 
-                new_state = {
-                    **{f'{k}': v for k, v in succ.items()},
-                    'moving_avg': new_moving_avg,
-                    'count': new_count
-                }
-                return new_state, policy_input, action
+                # new_state = {
+                #     **{f'{k}': v for k, v in succ.items()},
+                #     'moving_avg': new_moving_avg,
+                #     'count': new_count
+                # }
+                # return new_state, policy_input, action
                 
-            else:
-                state, _, _ = prev
-                feat = dynamics.get_feat(state).detach()
-                action = policy(feat).sample()
-                succ = dynamics.img_step(state, action)
-                return succ, feat, action
+            # else:
+            state, _, _ = prev
+            feat = dynamics.get_feat(state).detach()
+            action = policy(feat).sample()
+            succ = dynamics.img_step(state, action)
+            return succ, feat, action
 
         # Run static_scan
         if self._counterfactual_candidate:
@@ -528,10 +529,10 @@ class ImagBehavior(nn.Module):
             succ_out, feats, actions = tools.static_scan(step, [torch.arange(horizon)], init_state)
 
         # Extract correct states
-        if self._combine:
-            states = {k: torch.cat([start[k][None], v[:-1]], 0) for k, v in succ_out.items() if k in state_key}
-        else:
-            states = {k: torch.cat([start[k][None], v[:-1]], 0) for k, v in succ_out.items()}
+        # if self._combine:
+        #     states = {k: torch.cat([start[k][None], v[:-1]], 0) for k, v in succ_out.items() if k in state_key}
+        # else:
+        states = {k: torch.cat([start[k][None], v[:-1]], 0) for k, v in succ_out.items()}
 
         return feats, states, actions
 
