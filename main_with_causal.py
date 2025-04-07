@@ -1,24 +1,21 @@
 import argparse
 import functools
-import os
 import pathlib
 import sys
 import numpy as np
-import dreamer
 import torch
 from torch import distributions as torchd
 
 import ruamel.yaml as yaml
 
+
 sys.path.append(str(pathlib.Path(__file__).parent))
 
-import models
 import tools
+import dreamer
 from parallel import Parallel, Damy
-import scm_world_model
 
 to_np = lambda x: x.detach().cpu().numpy()
-
 
 def count_steps(folder):
     return sum(int(str(n).split("-")[-1][:-4]) - 1 for n in folder.glob("*.npz"))

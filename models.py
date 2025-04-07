@@ -223,6 +223,7 @@ class ImagBehavior(nn.Module):
         # new
         # self._future = config.future
         # self._combine = config.combine
+        self._use_counterfactuals = config.use_counterfactuals
         self._counterfactual_candidate = config.counterfactual_candidate
 
         kw = dict(wd=config.weight_decay, opt=config.opt, use_amp=self._use_amp)
@@ -376,6 +377,13 @@ class ImagBehavior(nn.Module):
                     metrics["counterfactual_R_best"] = R_a_best.item()
                     metrics["counterfactual_R_sample"] = R_a_sample.item()
                     metrics["counterfactual_R_worst"] = R_a_worst.item()
+                    
+                # Enhance with counterfactual reasoning if enabled
+                elif self._use_counterfactuals:
+                    cf_metrics = self._train_with_counterfactuals(start, objective)
+                    metrics.update(cf_metrics)
+                    
+                    
                     
                 reward = objective(imag_feat, imag_state, imag_action)
                 actor_ent = self.actor(imag_feat).entropy()
@@ -535,6 +543,70 @@ class ImagBehavior(nn.Module):
         states = {k: torch.cat([start[k][None], v[:-1]], 0) for k, v in succ_out.items()}
 
         return feats, states, actions
+    
+
+    
+    def _train_with_counterfactuals(self, start, objective):
+        """Additional training using counterfactual reasoning."""
+        self.cf_importance = self._config.get('cf_importance', 0.5)
+        
+        metrics = {}
+        
+        # Sample a few starting states
+        batch_size = next(iter(start.values())).shape[0]
+        num_samples = min(batch_size, 4)  # Use at most 4 counterfactual samples
+        indices = torch.randperm(batch_size)[:num_samples]
+        
+        # Extract selected states
+        sampled_states = {k: v[indices] for k, v in start.items()}
+        
+        # For each state, imagine a counterfactual trajectory
+        cf_losses = []
+        
+        for i in range(num_samples):
+            state_i = {k: v[i:i+1] for k, v in sampled_states.items()}
+            
+            # Get factual actions from current policy
+            feat = self._world_model.dynamics.get_feat(state_i)
+            action_dist = self.actor(feat)
+            factual_action = action_dist.sample()
+            
+            # Imagine factual next state and outcome
+            factual_next = self._world_model.dynamics.img_step(state_i, factual_action)
+            factual_feat = self._world_model.dynamics.get_feat(factual_next)
+            factual_reward = objective(factual_feat, factual_next, factual_action)
+            
+            # Generate counterfactual action (opposite direction)
+            cf_action = -factual_action
+            
+            # Imagine counterfactual outcome
+            cf_next = self._world_model.dynamics.img_step(state_i, cf_action)
+            cf_feat = self._world_model.dynamics.get_feat(cf_next)
+            cf_reward = objective(cf_feat, cf_next, cf_action)
+            
+            # If counterfactual is better, update policy to increase probability of that action
+            reward_diff = cf_reward - factual_reward
+            
+            if reward_diff > 0:
+                # Learn from the counterfactual - increase probability of better action
+                cf_loss = -action_dist.log_prob(cf_action) * reward_diff
+                cf_losses.append(cf_loss)
+                
+        # If we found beneficial counterfactuals, optimize for them
+        if cf_losses:
+            cf_loss = torch.mean(torch.cat(cf_losses))
+            
+            with tools.RequiresGrad(self.actor):
+                opt_info = self._actor_opt(
+                    cf_loss * self.cf_importance, 
+                    self.actor.parameters()
+                )
+                metrics.update({f"cf_{k}": v for k, v in opt_info.items()})
+            
+            metrics["cf_loss"] = float(cf_loss.detach().cpu().numpy())
+            metrics["cf_count"] = len(cf_losses)
+        
+        return metrics
 
 
     def _compute_target(self, imag_feat, imag_state, reward):

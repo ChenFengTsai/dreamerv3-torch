@@ -29,7 +29,7 @@ to_np = lambda x: x.detach().cpu().numpy()
 
 
 class Dreamer(nn.Module):
-    def __init__(self, obs_space, act_space, config, logger, dataset, causal_wm=None):
+    def __init__(self, obs_space, act_space, config, logger, dataset):
         super(Dreamer, self).__init__()
         self._config = config
         self._logger = logger
@@ -51,7 +51,7 @@ class Dreamer(nn.Module):
         self._update_count = 0
         self._dataset = dataset
         self._use_amp = True if config.precision == 16 else False
-        if config.causal_world_model & causal_wm:
+        if config.causal_world_model:
             self._wm = scm_world_model.WorldModelWithSCM(obs_space, act_space, self._step, config)
         else:
             self._wm = models.WorldModel(obs_space, act_space, self._step, config)
@@ -258,9 +258,6 @@ def make_dataset(episodes, config):
     generator = tools.sample_episodes(episodes, config.batch_length)
     dataset = tools.from_generator(generator, config.batch_size)
     return dataset
-
-## todo
-# def make_dataset_counterfactual()
 
 
 def make_env(config, mode, id):

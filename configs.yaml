@@ -29,6 +29,10 @@ defaults:
 
   # future: False
   # combine: False
+  use_counterfactuals : True
+  cf_importance: 0.5
+
+
   counterfactual_candidate: False
   best_candidate: False
 
@@ -242,3 +246,5 @@ debug:
 
 # eval
 # python dreamer.py --configs dmc_vision --task dmc_walker_walk --logdir ./logdir/dmc_walker_walk/original --device cuda:4 --eval_only True --action_perturb True --action_noise_scale 0.3
+
+#screen scm python dreamer.py --configs dmc_vision --task dmc_reacher_easy --logdir ./logdir/dmc_reacher_easy/scm --device cuda:3 --parallel True

@@ -618,7 +618,7 @@ class WorldModelWithSCM(nn.Module):
 
         return torch.cat([truth, model, error], 2)
     
-    # Additional methods for causal interventions
+    ### Additional methods for causal interventions
     
     def intervene(self, variable, value):
         """Perform causal intervention on a dynamics variable."""
