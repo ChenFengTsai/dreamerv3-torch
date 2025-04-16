@@ -41,10 +41,10 @@ defaults:
   # Counterfactual Dynamics Configuration
   causal_world_model: True
   causal_mode: 'causalVAE'
-
-  config.causal_factors : 7  # Number of physical properties
-  config.causal_dim : 4      # Dimension of each causal factor
   # SCM causalVAE
+
+  causal_factors : 7  # Number of physical properties
+
 
   # # eff
   # regret_scale: 0.01

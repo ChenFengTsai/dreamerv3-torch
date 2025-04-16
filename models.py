@@ -223,8 +223,8 @@ class ImagBehavior(nn.Module):
         # new
         # self._future = config.future
         # self._combine = config.combine
-        self._use_counterfactuals = config.use_counterfactuals
-        self._counterfactual_candidate = config.counterfactual_candidate
+        # self._use_counterfactuals = config.use_counterfactuals
+        # self._counterfactual_candidate = config.counterfactual_candidate
 
         kw = dict(wd=config.weight_decay, opt=config.opt, use_amp=self._use_amp)
         
