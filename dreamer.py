@@ -15,7 +15,11 @@ sys.path.append(str(pathlib.Path(__file__).parent))
 
 import exploration as expl
 import models
+
+# causal module
 import scm_world_model
+import causal_VAE
+
 import tools
 import envs.wrappers as wrappers
 from parallel import Parallel, Damy
@@ -37,8 +41,8 @@ class Dreamer(nn.Module):
         # self._future = config.future
         # self._combine = config.combine
         
-        self._counterfactual_candidate = config.counterfactual_candidate
-        self._best_candidate = config.best_candidate
+        # self._counterfactual_candidate = config.counterfactual_candidate
+        # self._best_candidate = config.best_candidate
         self._should_log = tools.Every(config.log_every)
         batch_steps = config.batch_size * config.batch_length
         self._should_train = tools.Every(batch_steps / config.train_ratio)
@@ -51,8 +55,12 @@ class Dreamer(nn.Module):
         self._update_count = 0
         self._dataset = dataset
         self._use_amp = True if config.precision == 16 else False
-        if config.causal_world_model:
+        if config.causal_world_model and config.causal_mode == "SCM":
             self._wm = scm_world_model.WorldModelWithSCM(obs_space, act_space, self._step, config)
+            
+        elif config.causal_world_model and config.causal_mode == "causalVAE":
+            self._wm = causal_VAE.CausalVAE_WorldModel(obs_space, act_space, self._step, config)
+
         else:
             self._wm = models.WorldModel(obs_space, act_space, self._step, config)
         

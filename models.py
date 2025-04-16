@@ -548,8 +548,11 @@ class ImagBehavior(nn.Module):
     
     def _train_with_counterfactuals(self, start, objective):
         """Additional training using counterfactual reasoning."""
-        self.cf_importance = self._config.get('cf_importance', 0.5)
-        
+        if self._config.cf_importance:
+            self.cf_importance = self._config.cf_importance
+        else:
+            self.cf_importance = 0.5
+            
         metrics = {}
         
         # Sample a few starting states
@@ -586,6 +589,8 @@ class ImagBehavior(nn.Module):
             
             # If counterfactual is better, update policy to increase probability of that action
             reward_diff = cf_reward - factual_reward
+            print("reward_diff", reward_diff)
+            print("cf action", action_dist.log_prob(cf_action))
             
             if reward_diff > 0:
                 # Learn from the counterfactual - increase probability of better action

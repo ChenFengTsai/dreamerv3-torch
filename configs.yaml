@@ -29,22 +29,26 @@ defaults:
 
   # future: False
   # combine: False
-  use_counterfactuals : True
-  cf_importance: 0.5
+  # use_counterfactuals : False
+  # cf_importance: 0.5
 
+  # counterfactual_candidate: False
+  # best_candidate: False
 
-  counterfactual_candidate: False
-  best_candidate: False
-
-  num_action_candidates: 8
-  counterfactual_horizon: 10
+  # num_action_candidates: 8
+  # counterfactual_horizon: 10
 
   # Counterfactual Dynamics Configuration
   causal_world_model: True
+  causal_mode: 'causalVAE'
 
-  # eff
-  regret_scale: 0.01
-  impact_scale: 0.01
+  config.causal_factors : 7  # Number of physical properties
+  config.causal_dim : 4      # Dimension of each causal factor
+  # SCM causalVAE
+
+  # # eff
+  # regret_scale: 0.01
+  # impact_scale: 0.01
 
   # Environment
   task: 'dmc_walker_walk'
@@ -247,4 +251,4 @@ debug:
 # eval
 # python dreamer.py --configs dmc_vision --task dmc_walker_walk --logdir ./logdir/dmc_walker_walk/original --device cuda:4 --eval_only True --action_perturb True --action_noise_scale 0.3
 
-#screen scm python dreamer.py --configs dmc_vision --task dmc_reacher_easy --logdir ./logdir/dmc_reacher_easy/scm --device cuda:3 --parallel True
+#screen scm python dreamer.py --configs dmc_vision --task dmc_reacher_easy --logdir ./logdir/dmc_reacher_easy/causalVAE --device cuda:3 --parallel True
