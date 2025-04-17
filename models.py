@@ -515,26 +515,27 @@ class ImagBehavior(nn.Module):
             return succ, feat, action
 
         # Run static_scan
-        if self._counterfactual_candidate:
-            if first_action is not None:
-                # First step manually
-                state = dynamics.img_step(init_state[0], first_action)
-                feat = dynamics.get_feat(state).detach()
+        # if self._counterfactual_candidate:
+        #     if first_action is not None:
+        #         # First step manually
+        #         state = dynamics.img_step(init_state[0], first_action)
+        #         feat = dynamics.get_feat(state).detach()
 
-                new_init_state = (state, feat, first_action)
+        #         new_init_state = (state, feat, first_action)
 
-                # Continue static_scan from t=1
-                succ_out, feats, actions = tools.static_scan(step, [torch.arange(horizon - 1)], new_init_state)
+        #         # Continue static_scan from t=1
+        #         succ_out, feats, actions = tools.static_scan(step, [torch.arange(horizon - 1)], new_init_state)
 
-                # Prepend first step results:
-                succ_out = {k: torch.cat([state[k].unsqueeze(0), v], dim=0) for k, v in succ_out.items()}
-                feats = torch.cat([feat.unsqueeze(0), feats], dim=0)
-                actions = torch.cat([first_action.unsqueeze(0), actions], dim=0)
+        #         # Prepend first step results:
+        #         succ_out = {k: torch.cat([state[k].unsqueeze(0), v], dim=0) for k, v in succ_out.items()}
+        #         feats = torch.cat([feat.unsqueeze(0), feats], dim=0)
+        #         actions = torch.cat([first_action.unsqueeze(0), actions], dim=0)
                 
-            else:
-                succ_out, feats, actions = tools.static_scan(step, [torch.arange(horizon)], init_state)
-        else:
-            succ_out, feats, actions = tools.static_scan(step, [torch.arange(horizon)], init_state)
+        #     else:
+        #         succ_out, feats, actions = tools.static_scan(step, [torch.arange(horizon)], init_state)
+        # else:
+        
+        succ_out, feats, actions = tools.static_scan(step, [torch.arange(horizon)], init_state)
 
         # Extract correct states
         # if self._combine:
