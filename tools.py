@@ -177,7 +177,9 @@ def simulate(
         results = [e.step(a) for e, a in zip(envs, action)]
         results = [r() for r in results]
         obs, reward, done = zip(*[p[:3] for p in results])
+        # print(obs[0]['end_effector_pos'])
         obs = list(obs)
+        
         reward = list(reward)
         done = np.stack(done)
         episode += int(done.sum())
@@ -321,6 +323,7 @@ def from_generator(generator, batch_size):
 
 def sample_episodes(episodes, length, seed=0):
     np_random = np.random.RandomState(seed)
+    ct = 0
     while True:
         size = 0
         ret = None
@@ -341,23 +344,32 @@ def sample_episodes(episodes, length, seed=0):
                     for k, v in episode.items()
                     if "log_" not in k
                 }
+                # if 'arm_lengths' not in ret and 'arm_lengths' in episode:
+                #     ret['arm_lengths'] = np.array([[0.06, 0.05]] * min(length, total - index), dtype=np.float32)
+                    
                 if "is_first" in ret:
                     ret["is_first"][0] = True
             else:
                 # 'is_first' comes after 'is_last'
                 index = 0
                 possible = length - size
+                # if 'arm_lengths' not in ret and 'arm_lengths' in episode:
+                #     ret['arm_lengths'] = np.array([[0.06, 0.05]] * min(index + possible, total), dtype=np.float32)
+                    
                 ret = {
                     k: np.append(
                         ret[k], v[index : min(index + possible, total)].copy(), axis=0
                     )
                     for k, v in episode.items()
-                    if "log_" not in k
+                    if "log_" not in k 
                 }
                 if "is_first" in ret:
                     ret["is_first"][size] = True
             size = len(next(iter(ret.values())))
+        ct+=1
+        print(ct)
         yield ret
+
 
 
 def load_episodes(directory, limit=None, reverse=True):

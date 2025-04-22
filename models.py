@@ -172,6 +172,7 @@ class WorldModel(nn.Module):
 
     # this function is called during both rollout and training
     def preprocess(self, obs):
+        print('here')
         obs = {
             k: torch.tensor(v, device=self._config.device, dtype=torch.float32)
             for k, v in obs.items()
@@ -345,43 +346,44 @@ class ImagBehavior(nn.Module):
                 # print('deter shape', self.saved_deter.shape)
                 # print('stoch shape', self.saved_stoch.shape)
                 
-                if self._counterfactual_candidate:
-                    # ===== Counterfactual branching at t=0 =====
-                    initial_state = {k: v[0].detach() for k, v in imag_state.items()}
-                    initial_feat = imag_feat[0].detach()
+                ## todo
+                # if self._counterfactual_candidate:
+                #     # ===== Counterfactual branching at t=0 =====
+                #     initial_state = {k: v[0].detach() for k, v in imag_state.items()}
+                #     initial_feat = imag_feat[0].detach()
                     
-                    (a_best, a_worst, a_sample, R_a_best, R_a_worst, R_a_sample) = self.select_counterfactual_actions(initial_feat, initial_state)
+                #     (a_best, a_worst, a_sample, R_a_best, R_a_worst, R_a_sample) = self.select_counterfactual_actions(initial_feat, initial_state)
                     
-                    # Repeat start states twice (for best & worst)
-                    start_double = {k: v.repeat_interleave(2, dim=0) for k, v in start.items()}
+                #     # Repeat start states twice (for best & worst)
+                #     start_double = {k: v.repeat_interleave(2, dim=0) for k, v in start.items()}
 
-                    # Concatenate best and worst actions for forced rollout
-                    forced_actions = torch.cat([a_best, a_worst], dim=0)
+                #     # Concatenate best and worst actions for forced rollout
+                #     forced_actions = torch.cat([a_best, a_worst], dim=0)
                     
-                    imag_feat_best, imag_state_best, imag_action_best = self._imagine(
-                        start, self.actor, self._config.imag_horizon, first_action=a_best
-                    )
-                    imag_feat_worst, imag_state_worst, imag_action_worst = self._imagine(
-                        start, self.actor, self._config.imag_horizon, first_action=a_worst
-                    )
+                #     imag_feat_best, imag_state_best, imag_action_best = self._imagine(
+                #         start, self.actor, self._config.imag_horizon, first_action=a_best
+                #     )
+                #     imag_feat_worst, imag_state_worst, imag_action_worst = self._imagine(
+                #         start, self.actor, self._config.imag_horizon, first_action=a_worst
+                #     )
                     
-                    imag_feat = torch.cat([imag_feat_best, imag_feat_worst], dim=1)
-                    imag_state = {k: torch.cat([imag_state_best[k], imag_state_worst[k]], dim=1) for k in imag_state_best}
-                    imag_action = torch.cat([imag_action_best, imag_action_worst], dim=1)
+                #     imag_feat = torch.cat([imag_feat_best, imag_feat_worst], dim=1)
+                #     imag_state = {k: torch.cat([imag_state_best[k], imag_state_worst[k]], dim=1) for k in imag_state_best}
+                #     imag_action = torch.cat([imag_action_best, imag_action_worst], dim=1)
 
-                    loss_regret = R_a_best - R_a_sample
-                    loss_impact = -(R_a_sample - R_a_worst)
+                #     loss_regret = R_a_best - R_a_sample
+                #     loss_impact = -(R_a_sample - R_a_worst)
 
-                    metrics["loss_regret"] = loss_regret.item()
-                    metrics["loss_impact"] = loss_impact.item()
-                    metrics["counterfactual_R_best"] = R_a_best.item()
-                    metrics["counterfactual_R_sample"] = R_a_sample.item()
-                    metrics["counterfactual_R_worst"] = R_a_worst.item()
+                #     metrics["loss_regret"] = loss_regret.item()
+                #     metrics["loss_impact"] = loss_impact.item()
+                #     metrics["counterfactual_R_best"] = R_a_best.item()
+                #     metrics["counterfactual_R_sample"] = R_a_sample.item()
+                #     metrics["counterfactual_R_worst"] = R_a_worst.item()
                     
-                # Enhance with counterfactual reasoning if enabled
-                elif self._use_counterfactuals:
-                    cf_metrics = self._train_with_counterfactuals(start, objective)
-                    metrics.update(cf_metrics)
+                # # Enhance with counterfactual reasoning if enabled
+                # elif self._use_counterfactuals:
+                #     cf_metrics = self._train_with_counterfactuals(start, objective)
+                #     metrics.update(cf_metrics)
                     
                     
                     
@@ -404,11 +406,11 @@ class ImagBehavior(nn.Module):
                 actor_loss -= self._config.actor["entropy"] * actor_ent[:-1, ..., None]
                 actor_loss = torch.mean(actor_loss)
                 
-                if self._counterfactual_candidate:
-                    # print("previous_actor_loss:", actor_loss)
-                    # contrastive learning
-                    actor_loss = actor_loss - self._config.regret_scale * loss_regret - self._config.impact_scale * loss_impact
-                    actor_loss = actor_loss.squeeze()
+                # if self._counterfactual_candidate:
+                #     # print("previous_actor_loss:", actor_loss)
+                #     # contrastive learning
+                #     actor_loss = actor_loss - self._config.regret_scale * loss_regret - self._config.impact_scale * loss_impact
+                #     actor_loss = actor_loss.squeeze()
                     
                 # print("actor_loss:", actor_loss)
                 metrics.update(mets)

@@ -270,12 +270,25 @@ def make_dataset(episodes, config):
 
 def make_env(config, mode, id):
     suite, task = config.task.split("_", 1)
+    # if suite == "dmc":
+    #     import envs.dmc as dmc
+
+    #     env = dmc.DeepMindControl(
+    #         task, config.action_repeat, config.size, seed=config.seed + id, modify=(config.modify_env, config.gravity_scale)
+    #     )
+        
     if suite == "dmc":
         import envs.dmc as dmc
-
+        
+        # Pass a tuple of modifications including arm length
+        modify = [config.modify_env, config.arm_length_scale]
+        
         env = dmc.DeepMindControl(
-            task, config.action_repeat, config.size, seed=config.seed + id, modify=(config.modify_env, config.gravity_scale)
+            task, config.action_repeat, config.size, 
+            seed=config.seed + id, 
+            modify=modify
         )
+        
         env = wrappers.NormalizeActions(env)
     elif suite == "atari":
         import envs.atari as atari
@@ -341,6 +354,24 @@ def main(config):
     tools.set_seed_everywhere(config.seed)
     if config.deterministic_run:
         tools.enable_deterministic_run()
+        
+    base_logdir = pathlib.Path(config.logdir).expanduser()
+    logdir = base_logdir
+    
+    # Check if the directory exists and create a unique one with suffix if needed
+    if logdir.exists():
+        suffix = 1
+        while True:
+            new_logdir = pathlib.Path(f"{base_logdir}_{suffix}")
+            if not new_logdir.exists():
+                logdir = new_logdir
+                break
+            suffix += 1
+        
+        print(f"Logdir {base_logdir} already exists. Using {logdir} instead.")
+    
+    # Update config with the new logdir
+    config.logdir = str(logdir)
     logdir = pathlib.Path(config.logdir).expanduser()
     config.traindir = config.traindir or logdir / "train_eps"
     config.evaldir = config.evaldir or logdir / "eval_eps"
@@ -430,6 +461,7 @@ def main(config):
             limit=config.dataset_size,
             steps=prefill,
         )
+        
         logger.step += prefill * config.action_repeat
         print(f"Logger: ({logger.step} steps).")
 

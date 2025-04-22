@@ -25,7 +25,8 @@ defaults:
   action_noise_scale : 0.3
 
   modify_env: False
-  gravity_scale: null
+  # gravity_scale: null
+  arm_length_scale: null  # Add this new parameter
 
   # future: False
   # combine: False
@@ -43,7 +44,7 @@ defaults:
   causal_mode: 'causalVAE'
   # SCM causalVAE
 
-  causal_factors : 7  # Number of physical properties
+  causal_factors : 4  # Number of physical properties
 
 
   # # eff
@@ -146,7 +147,7 @@ dmc_proprio:
   decoder: {mlp_keys: '.*', cnn_keys: '$^'}
 
 dmc_vision:
-  steps: 1e6
+  steps: 8e5
   action_repeat: 2
   envs: 4
   train_ratio: 512
